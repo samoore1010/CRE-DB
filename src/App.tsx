@@ -1755,6 +1755,10 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
       t.customDates.forEach(d => {
         if (!d.completed) allDates.push({ id: t.id, dealName: t.dealName, label: d.label, date: parseISO(d.date), type: 'custom' });
       });
+    });
+
+    // Include reminders from ALL transactions (including Closed)
+    transactions.filter(t => !t.isDeleted).forEach(t => {
       t.reminders?.forEach(r => {
         if (!r.completed) allDates.push({ id: t.id, dealName: t.dealName, label: r.description || 'Follow Up', date: parseISO(r.date), type: 'reminder', isLead: false });
       });
@@ -4101,11 +4105,6 @@ const TransactionDetailView = ({
               </div>
             </div>
 
-            {/* AI Assistant Widget */}
-            <AIAssistant 
-                transaction={formData} 
-                onUpdateTransaction={handleAIUpdate} 
-            />
           </div>
         </div>
       </div>
