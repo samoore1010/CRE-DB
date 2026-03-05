@@ -752,6 +752,108 @@ const AIAssistant = ({
   );
 };
 
+// --- Module-level CSV processing functions (used by DataManagementView and startup auto-load) ---
+
+function processTransactionCSV(data: any[]): Transaction[] {
+  const newTransactions: Transaction[] = [];
+  data.forEach((row, index) => {
+    const parseCurrency = (str: string) => {
+      if (!str) return 0;
+      return Number(str.replace(/[^0-9.-]+/g, ''));
+    };
+    const parsePercent = (str: string) => {
+      if (!str) return 0;
+      return Number(str.replace(/[^0-9.-]+/g, ''));
+    };
+    const parseDate = (str: string) => {
+      if (!str) return '';
+      try {
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d.toISOString();
+        return '';
+      } catch (e) { return ''; }
+    };
+    let stage: PipelineStage = 'LOI';
+    const rawStage = row['Stage:']?.trim();
+    if (rawStage === 'Closed') stage = 'Closed';
+    else if (rawStage === 'Escrow') stage = 'Escrow';
+    else if (rawStage === 'Contract') stage = 'Contract';
+    else if (rawStage === 'Option') stage = 'Option';
+    const t: Transaction = {
+      id: Math.random().toString(36).substr(2, 9),
+      dealName: row['Seller(s):'] || `Deal ${index + 1}`,
+      stage,
+      price: parseCurrency(row['Price:']),
+      grossCommissionPercent: parsePercent(row['Base Commission']),
+      laoCutPercent: parsePercent(row['LAO Split']),
+      treySplitPercent: parsePercent(row['Trey Commission']),
+      kirkSplitPercent: parsePercent(row['Kirk Commission']),
+      earnestMoney: 0,
+      psaDate: '',
+      feasibilityDate: parseDate(row['Feasability End Date']),
+      coeDate: parseDate(row['Close of Escrow']),
+      address: '',
+      acreage: 0,
+      zoning: '',
+      clientContact: '',
+      clientPhone: '',
+      clientEmail: '',
+      coBroker: '',
+      titleCompany: '',
+      referralSource: '',
+      notes: '',
+      notesLog: [],
+      buyer: { role: 'Buyer', name: row['Buyer:'] || '', entity: '' },
+      seller: { role: 'Seller', name: row['Seller(s):'] || '', entity: '' },
+      otherParties: [],
+      customDates: [],
+      documents: [],
+      apn: row['PID'] || '',
+      pid: row['PID'] || '',
+      projectYear: row['Year'] || new Date().getFullYear().toString(),
+      county: '',
+      isDeleted: false
+    };
+    if (row['Buyer:2']) {
+      t.otherParties.push({ role: 'Buyer 2', name: row['Buyer:2'], entity: '' });
+    }
+    newTransactions.push(t);
+  });
+  return newTransactions;
+}
+
+function processLeadCSV(data: any[]): Lead[] {
+  const newLeads: Lead[] = [];
+  data.forEach((row, index) => {
+    const parseDate = (str: string) => {
+      if (!str) return '';
+      try {
+        if (!isNaN(Number(str)) && Number(str) > 20000) {
+          const date = new Date((Number(str) - 25569) * 86400 * 1000);
+          return date.toISOString();
+        }
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d.toISOString();
+        return '';
+      } catch (e) { return ''; }
+    };
+    const l: Lead = {
+      id: Math.random().toString(36).substr(2, 9),
+      type: row['Lead Type']?.trim() || 'True Lead',
+      projectName: row['Project Name'] || `Lead ${index + 1}`,
+      contactName: row['Contact'] || '',
+      details: row['Details'] || '',
+      lastSpokeDate: parseDate(row['Last Spoke']),
+      summary: row['Summary of Discussion'] || '',
+      isDeleted: false,
+      notesLog: [],
+      followUpDate: undefined
+    };
+    newLeads.push(l);
+  });
+  return newLeads;
+}
+
 const DataManagementView = ({ 
   transactions, 
   leads,
@@ -836,11 +938,11 @@ const DataManagementView = ({
       skipEmptyLines: true,
       complete: (results) => {
         if (dataType === 'transactions') {
-            const parsed = processData(results.data);
+            const parsed = processTransactionCSV(results.data);
             setPreviewData(parsed);
             setSelectedPreviewIds(new Set(parsed.map(t => t.id)));
         } else {
-            const parsed = processLeadData(results.data);
+            const parsed = processLeadCSV(results.data);
             setPreviewLeads(parsed);
             setSelectedPreviewIds(new Set(parsed.map(l => l.id)));
         }
@@ -851,146 +953,6 @@ const DataManagementView = ({
         alert('Failed to parse CSV file.');
       }
     });
-  };
-
-  const processLeadData = (data: any[]) => {
-      const newLeads: Lead[] = [];
-      data.forEach((row, index) => {
-          // Helper to parse dates
-          const parseDate = (str: string) => {
-            if (!str) return '';
-            try {
-                // Handle excel serial dates if necessary, but assuming standard date strings for now
-                // If it's a number (Excel serial), convert it
-                if (!isNaN(Number(str)) && Number(str) > 20000) {
-                     // Excel date serial
-                     const date = new Date((Number(str) - 25569) * 86400 * 1000);
-                     return date.toISOString();
-                }
-                const d = new Date(str);
-                if (!isNaN(d.getTime())) {
-                    return d.toISOString();
-                }
-                return '';
-            } catch (e) {
-                return '';
-            }
-          };
-
-          const type = row['Lead Type']?.trim() || 'True Lead';
-          // Map legacy or variations if needed, but user specified exact strings
-          
-          const l: Lead = {
-              id: Math.random().toString(36).substr(2, 9),
-              type: type,
-              projectName: row['Project Name'] || `Lead ${index + 1}`,
-              contactName: row['Contact'] || '',
-              details: row['Details'] || '',
-              lastSpokeDate: parseDate(row['Last Spoke']),
-              summary: row['Summary of Discussion'] || '',
-              isDeleted: false,
-              notesLog: [],
-              followUpDate: undefined
-          };
-          newLeads.push(l);
-      });
-      return newLeads;
-  };
-
-  const processData = (data: any[]) => {
-    const newTransactions: Transaction[] = [];
-
-    data.forEach((row, index) => {
-      // Helper to clean currency strings
-      const parseCurrency = (str: string) => {
-        if (!str) return 0;
-        return Number(str.replace(/[^0-9.-]+/g, ''));
-      };
-
-      // Helper to clean percent strings
-      const parsePercent = (str: string) => {
-        if (!str) return 0;
-        return Number(str.replace(/[^0-9.-]+/g, ''));
-      };
-
-      // Helper to parse dates
-      const parseDate = (str: string) => {
-        if (!str) return '';
-        try {
-            const d = new Date(str);
-            if (!isNaN(d.getTime())) {
-                return d.toISOString();
-            }
-            return '';
-        } catch (e) {
-            return '';
-        }
-      };
-
-      // Map Stage
-      let stage: PipelineStage = 'LOI'; // Default
-      const rawStage = row['Stage:']?.trim();
-      if (rawStage === 'Closed') stage = 'Closed';
-      else if (rawStage === 'Escrow') stage = 'Escrow';
-      else if (rawStage === 'Contract') stage = 'Contract';
-      else if (rawStage === 'Option') stage = 'Option';
-      
-      const t: Transaction = {
-        id: Math.random().toString(36).substr(2, 9),
-        dealName: row['Seller(s):'] || `Deal ${index + 1}`,
-        stage: stage,
-        price: parseCurrency(row['Price:']),
-        grossCommissionPercent: parsePercent(row['Base Commission']),
-        laoCutPercent: parsePercent(row['LAO Split']),
-        treySplitPercent: parsePercent(row['Trey Commission']),
-        kirkSplitPercent: parsePercent(row['Kirk Commission']),
-        earnestMoney: 0,
-        psaDate: '',
-        feasibilityDate: parseDate(row['Feasability End Date']),
-        coeDate: parseDate(row['Close of Escrow']),
-        address: '',
-        acreage: 0,
-        zoning: '',
-        clientContact: '',
-        clientPhone: '',
-        clientEmail: '',
-        coBroker: '',
-        titleCompany: '',
-        referralSource: '',
-        notes: `Imported from CSV.`,
-        notesLog: [],
-        buyer: {
-            role: 'Buyer',
-            name: row['Buyer:'] || '',
-            entity: ''
-        },
-        seller: {
-            role: 'Seller',
-            name: row['Seller(s):'] || '',
-            entity: ''
-        },
-        otherParties: [],
-        customDates: [],
-        documents: [],
-        apn: row['PID'] || '', // Map PID to apn for now, but also to pid field
-        pid: row['PID'] || '',
-        projectYear: row['Year'] || new Date().getFullYear().toString(),
-        county: '',
-        isDeleted: false
-      };
-
-      if (row['Buyer:2']) {
-          t.otherParties.push({
-              role: 'Buyer 2',
-              name: row['Buyer:2'],
-              entity: ''
-          });
-      }
-
-      newTransactions.push(t);
-    });
-
-    return newTransactions;
   };
 
   const handleConfirmImport = () => {
@@ -4790,6 +4752,43 @@ export default function App() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
+
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const [transRes, leadsRes] = await Promise.all([
+          fetch('/transactions.csv'),
+          fetch('/leads.csv')
+        ]);
+        if (transRes.ok) {
+          const text = await transRes.text();
+          Papa.parse(text, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results: any) => {
+              const parsed = processTransactionCSV(results.data);
+              if (parsed.length > 0) setTransactions(parsed);
+            }
+          });
+        }
+        if (leadsRes.ok) {
+          const text = await leadsRes.text();
+          Papa.parse(text, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results: any) => {
+              const parsed = processLeadCSV(results.data);
+              if (parsed.length > 0) setLeads(parsed);
+            }
+          });
+        }
+      } catch (e) {
+        console.log('Could not load CSV data files:', e);
+      }
+    };
+    loadInitialData();
+  }, []);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
