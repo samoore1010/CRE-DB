@@ -228,471 +228,9 @@ interface Transaction {
 
 // --- Mock Data ---
 
-const INITIAL_TRANSACTIONS: Transaction[] = [
-  {
-    id: '1',
-    dealName: 'City/Gordon',
-    stage: 'Escrow',
-    price: 4500000,
-    grossCommissionPercent: 3.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 17.5,
-    kirkSplitPercent: 82.5,
-    earnestMoney: 100000,
-    psaDate: '2026-01-15',
-    feasibilityDate: '2026-02-28',
-    coeDate: '2026-03-15',
-    address: '123 Gordon Ave, Phoenix, AZ',
-    acreage: 12.5,
-    zoning: 'C-2',
-    clientContact: 'John Smith (Developer)',
-    clientPhone: '(602) 555-0123',
-    clientEmail: 'john@devco.com',
-    coBroker: 'CBRE - Mike Jones',
-    titleCompany: 'First American Title',
-    referralSource: 'Past Client',
-    notes: 'Waiting on environmental phase 1 report. Buyer is motivated.',
-    notesLog: [
-      { id: '1', content: 'Waiting on environmental phase 1 report. Buyer is motivated.', date: '2026-02-28T10:00:00Z' },
-      { id: '2', content: 'Received initial draft of PSA from buyer counsel.', date: '2026-01-10T09:30:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'John Smith', entity: 'DevCo LLC', email: 'john@devco.com', phone: '(602) 555-0123' },
-    seller: { role: 'Seller', name: 'Robert Gordon', entity: 'Gordon Family Trust' },
-    otherParties: [
-      { role: 'Escrow Officer', name: 'Sarah Miller', entity: 'First American Title', email: 'smiller@firstam.com', phone: '(602) 555-9988' }
-    ],
-    customDates: [],
-    documents: [],
-    apn: '123-45-678',
-    county: 'Maricopa'
-  },
-  {
-    id: '2',
-    dealName: 'Desert Ridge Parcel',
-    stage: 'Contract',
-    price: 8200000,
-    grossCommissionPercent: 2.5,
-    laoCutPercent: 30.0,
-    treySplitPercent: 20.0,
-    kirkSplitPercent: 80.0,
-    earnestMoney: 250000,
-    psaDate: '2026-02-10',
-    feasibilityDate: '2026-04-10',
-    coeDate: '2026-05-01',
-    address: 'N Tatum Blvd, Phoenix, AZ',
-    acreage: 45.0,
-    zoning: 'R1-18',
-    clientContact: 'Sarah Connor (Land Owner)',
-    clientPhone: '(480) 555-9876',
-    clientEmail: 'sarah@landholdings.net',
-    coBroker: 'None',
-    titleCompany: 'Chicago Title',
-    referralSource: 'Cold Call',
-    notes: 'Negotiating extension on feasibility period.',
-    notesLog: [
-      { id: '1', content: 'Negotiating extension on feasibility period.', date: '2026-03-01T14:30:00Z' },
-      { id: '2', content: 'Buyer requested additional 30 days due to city council meeting delay.', date: '2026-02-28T11:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Pulte Homes', entity: 'Pulte Group' },
-    seller: { role: 'Seller', name: 'Sarah Connor', entity: 'Connor Land Holdings' },
-    otherParties: [],
-    customDates: [{ id: '1', label: 'Extension Deadline', date: '2026-04-01', completed: false }],
-    documents: [],
-    apn: '234-56-789',
-    county: 'Maricopa'
-  },
-  {
-    id: '3',
-    dealName: 'Buckeye Industrial',
-    stage: 'LOI',
-    price: 12500000,
-    grossCommissionPercent: 4.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 17.5,
-    kirkSplitPercent: 82.5,
-    earnestMoney: 0,
-    psaDate: '',
-    feasibilityDate: '',
-    coeDate: '', 
-    address: 'I-10 & Miller Rd, Buckeye, AZ',
-    acreage: 80.0,
-    zoning: 'I-1',
-    clientContact: 'Logistics Corp',
-    clientPhone: '(602) 555-4567',
-    clientEmail: 'acquisitions@logistics.com',
-    coBroker: 'JLL - Sarah Lee',
-    titleCompany: 'TBD',
-    referralSource: 'Networking Event',
-    notes: 'Drafting PSA. Buyer wants 90 day close.',
-    notesLog: [
-      { id: '1', content: 'Drafting PSA. Buyer wants 90 day close.', date: '2026-02-25T09:15:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Logistics Corp', entity: 'Logistics Corp' },
-    seller: { role: 'Seller', name: 'Unknown', entity: 'Unknown' },
-    otherParties: [],
-    customDates: [],
-    documents: [],
-    apn: '345-67-890',
-    county: 'Maricopa'
-  },
-  {
-    id: '4',
-    dealName: 'Queen Creek Residential',
-    stage: 'Closed',
-    price: 3200000,
-    grossCommissionPercent: 3.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 17.5,
-    kirkSplitPercent: 82.5,
-    earnestMoney: 50000,
-    psaDate: '2025-11-01',
-    feasibilityDate: '2025-12-15',
-    coeDate: '2026-01-20',
-    address: 'Ocotillo & Ironwood, Queen Creek, AZ',
-    acreage: 10.0,
-    zoning: 'R1-6',
-    clientContact: 'Homebuilders Inc',
-    clientPhone: '(480) 555-1122',
-    clientEmail: 'land@homebuilders.com',
-    coBroker: 'Nathan & Associates',
-    titleCompany: 'Empire West',
-    referralSource: 'Existing Relationship',
-    notes: 'Closed successfully. Commission check received.',
-    notesLog: [
-      { id: '1', content: 'Closed successfully. Commission check received.', date: '2026-01-20T16:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Homebuilders Inc', entity: 'Homebuilders Inc' },
-    seller: { role: 'Seller', name: 'QC Land LLC', entity: 'QC Land LLC' },
-    otherParties: [],
-    customDates: [],
-    documents: [],
-    apn: '456-78-901',
-    county: 'Pinal'
-  },
-  {
-    id: '5',
-    dealName: 'Surprise Commercial Corner',
-    stage: 'Escrow',
-    price: 1800000,
-    grossCommissionPercent: 6.0,
-    laoCutPercent: 35.0, 
-    treySplitPercent: 25.0, 
-    kirkSplitPercent: 75.0,
-    earnestMoney: 50000,
-    psaDate: '2026-01-05',
-    feasibilityDate: '2026-02-15',
-    coeDate: '2026-03-01',
-    address: 'Grand Ave & Bell Rd, Surprise, AZ',
-    acreage: 2.5,
-    zoning: 'C-3',
-    clientContact: 'Retail Group LLC',
-    clientPhone: '(623) 555-3344',
-    clientEmail: 'dev@retailgroup.com',
-    coBroker: 'None',
-    titleCompany: 'Security Title',
-    referralSource: 'Sign Call',
-    notes: 'Hard money deposit. Closing imminent.',
-    notesLog: [
-      { id: '1', content: 'Hard money deposit. Closing imminent.', date: '2026-02-20T11:45:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Retail Group LLC', entity: 'Retail Group LLC' },
-    seller: { role: 'Seller', name: 'Grand Ave Holdings', entity: 'Grand Ave Holdings' },
-    otherParties: [],
-    customDates: [],
-    documents: [],
-    apn: '567-89-012',
-    county: 'Maricopa'
-  },
-  {
-    id: '6',
-    dealName: 'Casa Grande Agri-Business Park',
-    stage: 'Contract',
-    price: 6500000,
-    grossCommissionPercent: 4.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 17.5,
-    kirkSplitPercent: 82.5,
-    earnestMoney: 150000,
-    psaDate: '2026-02-01',
-    feasibilityDate: '2026-05-01',
-    coeDate: '2026-06-15',
-    address: 'Thornton Rd & I-8, Casa Grande, AZ',
-    acreage: 120.0,
-    zoning: 'I-2',
-    clientContact: 'AgriCorp Intl',
-    clientPhone: '(520) 555-8899',
-    clientEmail: 'land@agricorp.com',
-    coBroker: 'Land Advisors - Pinal Team',
-    titleCompany: 'Pioneer Title',
-    referralSource: 'Networking Event',
-    notes: 'Long feasibility due to water rights verification.',
-    notesLog: [
-      { id: '1', content: 'Water rights attorney engaged by buyer.', date: '2026-02-15T10:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'AgriCorp Intl', entity: 'AgriCorp AZ Holdings LLC' },
-    seller: { role: 'Seller', name: 'Farnsworth Family', entity: 'Farnsworth Trust' },
-    otherParties: [
-      { role: 'Water Attorney', name: 'David Waterlaw', entity: 'Water Law Firm', email: 'david@waterlaw.com', phone: '(602) 555-1111' }
-    ],
-    customDates: [
-      { id: '1', label: 'Water Study Due', date: '2026-04-15', completed: false }
-    ],
-    documents: [],
-    apn: '505-11-222',
-    county: 'Pinal'
-  },
-  {
-    id: '7',
-    dealName: 'Scottsdale Infill Project',
-    stage: 'LOI',
-    price: 2800000,
-    grossCommissionPercent: 3.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 20.0,
-    kirkSplitPercent: 80.0,
-    earnestMoney: 0,
-    psaDate: '',
-    feasibilityDate: '',
-    coeDate: '',
-    address: 'Hayden & McDowell, Scottsdale, AZ',
-    acreage: 1.2,
-    zoning: 'R-5',
-    clientContact: 'Urban Living Devs',
-    clientPhone: '(480) 555-7777',
-    clientEmail: 'projects@urbanliving.com',
-    coBroker: 'None',
-    titleCompany: 'TBD',
-    referralSource: 'Website Inquiry',
-    notes: 'High density potential. Seller wants quick close.',
-    notesLog: [
-      { id: '1', content: 'Submitted LOI. Seller countering on price.', date: '2026-03-01T09:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Urban Living Devs', entity: 'Urban Living LLC' },
-    seller: { role: 'Seller', name: 'Estate of J. Doe', entity: 'Doe Estate' },
-    otherParties: [],
-    customDates: [],
-    documents: [],
-    apn: '173-44-555',
-    county: 'Maricopa'
-  },
-  {
-    id: '8',
-    dealName: 'Goodyear Solar Farm',
-    stage: 'Escrow',
-    price: 15000000,
-    grossCommissionPercent: 2.0,
-    laoCutPercent: 25.0,
-    treySplitPercent: 15.0,
-    kirkSplitPercent: 85.0,
-    earnestMoney: 500000,
-    psaDate: '2025-12-01',
-    feasibilityDate: '2026-03-01',
-    coeDate: '2026-03-31',
-    address: 'Estrella Pkwy & MC 85, Goodyear, AZ',
-    acreage: 320.0,
-    zoning: 'AG',
-    clientContact: 'SunPower Renewables',
-    clientPhone: '(602) 555-2222',
-    clientEmail: 'land@sunpower.com',
-    coBroker: 'Cushman & Wakefield',
-    titleCompany: 'Thomas Title',
-    referralSource: 'Existing Relationship',
-    notes: 'Feasibility expiring soon. All studies look good.',
-    notesLog: [
-      { id: '1', content: 'ALTA Survey received and approved.', date: '2026-02-20T14:00:00Z' },
-      { id: '2', content: 'Interconnection agreement filed with APS.', date: '2026-01-15T11:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'SunPower Renewables', entity: 'SunPower AZ 4 LLC' },
-    seller: { role: 'Seller', name: 'Duncan Farms', entity: 'Duncan Family Partnership' },
-    otherParties: [],
-    customDates: [
-      { id: '1', label: 'CUP Hearing', date: '2026-03-10', completed: false }
-    ],
-    documents: [],
-    apn: '500-22-333',
-    county: 'Maricopa'
-  },
-  {
-    id: '9',
-    dealName: 'Mesa Medical Office Site',
-    stage: 'Closed',
-    price: 2100000,
-    grossCommissionPercent: 4.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 17.5,
-    kirkSplitPercent: 82.5,
-    earnestMoney: 50000,
-    psaDate: '2025-10-15',
-    feasibilityDate: '2025-11-30',
-    coeDate: '2026-01-10',
-    address: 'Power Rd & McKellips, Mesa, AZ',
-    acreage: 3.5,
-    zoning: 'O-S',
-    clientContact: 'Dr. Johnson',
-    clientPhone: '(480) 555-3333',
-    clientEmail: 'drj@medicalgroup.com',
-    coBroker: 'Kidder Mathews',
-    titleCompany: 'Clear Title',
-    referralSource: 'Direct Mail',
-    notes: 'Closed. Buyer intends to build 20k sf medical office.',
-    notesLog: [
-      { id: '1', content: 'Deal closed. Wiring instructions confirmed.', date: '2026-01-10T15:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Mesa Medical Group', entity: 'MMG Holdings LLC' },
-    seller: { role: 'Seller', name: 'Bank of America (REO)', entity: 'Bank of America NA' },
-    otherParties: [],
-    customDates: [],
-    documents: [],
-    apn: '222-33-444',
-    county: 'Maricopa'
-  },
-  {
-    id: '10',
-    dealName: 'Chandler Tech Park',
-    stage: 'LOI',
-    price: 5500000,
-    grossCommissionPercent: 3.5,
-    laoCutPercent: 30.0,
-    treySplitPercent: 17.5,
-    kirkSplitPercent: 82.5,
-    earnestMoney: 0,
-    psaDate: '',
-    feasibilityDate: '',
-    coeDate: '',
-    address: 'Price Rd & Willis, Chandler, AZ',
-    acreage: 8.0,
-    zoning: 'PAD',
-    clientContact: 'TechSpace Developers',
-    clientPhone: '(480) 555-9999',
-    clientEmail: 'acq@techspace.com',
-    coBroker: 'None',
-    titleCompany: 'TBD',
-    referralSource: 'Broker Blast',
-    notes: 'Buyer looking for shovel ready site. This needs re-plat.',
-    notesLog: [
-      { id: '1', content: 'Sent marketing package. Buyer expressed interest.', date: '2026-02-28T16:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'TechSpace Developers', entity: 'TechSpace AZ LLC' },
-    seller: { role: 'Seller', name: 'Intel Corp (Surplus)', entity: 'Intel Corporation' },
-    otherParties: [],
-    customDates: [],
-    documents: [],
-    apn: '303-44-555',
-    county: 'Maricopa'
-  },
-  {
-    id: '11',
-    dealName: 'Gilbert Heritage District',
-    stage: 'Contract',
-    price: 3800000,
-    grossCommissionPercent: 3.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 20.0,
-    kirkSplitPercent: 80.0,
-    earnestMoney: 100000,
-    psaDate: '2026-02-20',
-    feasibilityDate: '2026-04-20',
-    coeDate: '2026-05-20',
-    address: 'Gilbert Rd & Cullumber, Gilbert, AZ',
-    acreage: 1.5,
-    zoning: 'H-C',
-    clientContact: 'Restaurant Group',
-    clientPhone: '(480) 555-0000',
-    clientEmail: 'realestate@restaurantgroup.com',
-    coBroker: 'Phoenix Commercial Advisors',
-    titleCompany: 'Empire West',
-    referralSource: 'Networking Event',
-    notes: 'Restaurant concept. Needs parking variance.',
-    notesLog: [
-      { id: '1', content: 'PSA signed. Opening escrow today.', date: '2026-02-20T13:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Restaurant Group', entity: 'Gilbert Dining LLC' },
-    seller: { role: 'Seller', name: 'Old Town LLC', entity: 'Old Town Gilbert LLC' },
-    otherParties: [],
-    customDates: [
-      { id: '1', label: 'Design Review', date: '2026-03-15', completed: false }
-    ],
-    documents: [],
-    apn: '302-11-999',
-    county: 'Maricopa'
-  },
-  {
-    id: '12',
-    dealName: 'Tucson Student Housing',
-    stage: 'Escrow',
-    price: 9200000,
-    grossCommissionPercent: 2.5,
-    laoCutPercent: 30.0,
-    treySplitPercent: 15.0,
-    kirkSplitPercent: 85.0,
-    earnestMoney: 200000,
-    psaDate: '2025-12-15',
-    feasibilityDate: '2026-02-15',
-    coeDate: '2026-03-10',
-    address: 'Park Ave & 6th St, Tucson, AZ',
-    acreage: 1.8,
-    zoning: 'R-3',
-    clientContact: 'Campus Living',
-    clientPhone: '(520) 555-1234',
-    clientEmail: 'dev@campusliving.com',
-    coBroker: 'Volk Company',
-    titleCompany: 'Title Security',
-    referralSource: 'Past Client',
-    notes: 'Closing next week. Loan docs signed.',
-    notesLog: [
-      { id: '1', content: 'Loan docs signed. Funding scheduled for Monday.', date: '2026-03-02T09:00:00Z' },
-      { id: '2', content: 'Feasibility period expired. Deposit non-refundable.', date: '2026-02-15T17:00:00Z' }
-    ],
-    buyer: { role: 'Buyer', name: 'Campus Living', entity: 'Campus Living Tucson LLC' },
-    seller: { role: 'Seller', name: 'Local Investor', entity: 'Wildcat Holdings LLC' },
-    otherParties: [],
-    customDates: [],
-    documents: [],
-    apn: '111-22-333',
-    county: 'Pima'
-  }
-];
+const INITIAL_TRANSACTIONS: Transaction[] = [];
 
-const INITIAL_LEADS: Lead[] = [
-  {
-    id: '1',
-    type: 'True Lead',
-    projectName: 'Camelback & 32nd',
-    contactName: 'Bill Johnson',
-    details: 'Looking for 2-3 acres for mixed use.',
-    lastSpokeDate: '2026-02-20T10:00:00Z',
-    summary: 'Met at coffee shop. Interested in Biltmore area.',
-    isDeleted: false,
-    notesLog: [
-      { id: '1', content: 'Met at coffee shop. Interested in Biltmore area.', date: '2026-02-20T10:00:00Z' },
-      { id: '2', content: 'Initial phone call. Sent listings.', date: '2026-02-15T14:00:00Z' }
-    ],
-    contacts: [
-      { id: '1', name: 'Bill Johnson', role: 'Principal', phone: '602-555-0101', email: 'bill@example.com' }
-    ],
-    reminders: [
-      { id: '1', date: '2026-03-10T09:00:00Z', description: 'Follow up on listings sent', completed: false }
-    ]
-  },
-  {
-    id: '2',
-    type: 'Soft Lead',
-    projectName: 'Gilbert Industrial',
-    contactName: 'TechPark Inc',
-    details: 'Need 50k sqft warehouse space.',
-    lastSpokeDate: '2026-01-15T14:00:00Z',
-    summary: 'Sent market report. Follow up in March.',
-    isDeleted: false,
-    notesLog: [
-      { id: '1', content: 'Sent market report. Follow up in March.', date: '2026-01-15T14:00:00Z' }
-    ],
-    followUpDate: '2026-03-10',
-    contacts: [
-      { id: '1', name: 'Sarah Connor', role: 'Director of Ops', phone: '480-555-9999', email: 'sarah@techpark.com' }
-    ],
-    reminders: []
-  }
-];
+const INITIAL_LEADS: Lead[] = [];
 
 // --- Business Logic Hook ---
 
@@ -1214,6 +752,108 @@ const AIAssistant = ({
   );
 };
 
+// --- Module-level CSV processing functions (used by DataManagementView and startup auto-load) ---
+
+function processTransactionCSV(data: any[]): Transaction[] {
+  const newTransactions: Transaction[] = [];
+  data.forEach((row, index) => {
+    const parseCurrency = (str: string) => {
+      if (!str) return 0;
+      return Number(str.replace(/[^0-9.-]+/g, ''));
+    };
+    const parsePercent = (str: string) => {
+      if (!str) return 0;
+      return Number(str.replace(/[^0-9.-]+/g, ''));
+    };
+    const parseDate = (str: string) => {
+      if (!str) return '';
+      try {
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d.toISOString();
+        return '';
+      } catch (e) { return ''; }
+    };
+    let stage: PipelineStage = 'LOI';
+    const rawStage = row['Stage:']?.trim();
+    if (rawStage === 'Closed') stage = 'Closed';
+    else if (rawStage === 'Escrow') stage = 'Escrow';
+    else if (rawStage === 'Contract') stage = 'Contract';
+    else if (rawStage === 'Option') stage = 'Option';
+    const t: Transaction = {
+      id: Math.random().toString(36).substr(2, 9),
+      dealName: row['Seller(s):'] || `Deal ${index + 1}`,
+      stage,
+      price: parseCurrency(row['Price:']),
+      grossCommissionPercent: parsePercent(row['Base Commission']),
+      laoCutPercent: parsePercent(row['LAO Split']),
+      treySplitPercent: parsePercent(row['Trey Commission']),
+      kirkSplitPercent: parsePercent(row['Kirk Commission']),
+      earnestMoney: 0,
+      psaDate: '',
+      feasibilityDate: parseDate(row['Feasability End Date']),
+      coeDate: parseDate(row['Close of Escrow']),
+      address: '',
+      acreage: 0,
+      zoning: '',
+      clientContact: '',
+      clientPhone: '',
+      clientEmail: '',
+      coBroker: '',
+      titleCompany: '',
+      referralSource: '',
+      notes: '',
+      notesLog: [],
+      buyer: { role: 'Buyer', name: row['Buyer:'] || '', entity: '' },
+      seller: { role: 'Seller', name: row['Seller(s):'] || '', entity: '' },
+      otherParties: [],
+      customDates: [],
+      documents: [],
+      apn: row['PID'] || '',
+      pid: row['PID'] || '',
+      projectYear: row['Year'] || new Date().getFullYear().toString(),
+      county: '',
+      isDeleted: false
+    };
+    if (row['Buyer:2']) {
+      t.otherParties.push({ role: 'Buyer 2', name: row['Buyer:2'], entity: '' });
+    }
+    newTransactions.push(t);
+  });
+  return newTransactions;
+}
+
+function processLeadCSV(data: any[]): Lead[] {
+  const newLeads: Lead[] = [];
+  data.forEach((row, index) => {
+    const parseDate = (str: string) => {
+      if (!str) return '';
+      try {
+        if (!isNaN(Number(str)) && Number(str) > 20000) {
+          const date = new Date((Number(str) - 25569) * 86400 * 1000);
+          return date.toISOString();
+        }
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d.toISOString();
+        return '';
+      } catch (e) { return ''; }
+    };
+    const l: Lead = {
+      id: Math.random().toString(36).substr(2, 9),
+      type: row['Lead Type']?.trim() || 'True Lead',
+      projectName: row['Project Name'] || `Lead ${index + 1}`,
+      contactName: row['Contact'] || '',
+      details: row['Details'] || '',
+      lastSpokeDate: parseDate(row['Last Spoke']),
+      summary: row['Summary of Discussion'] || '',
+      isDeleted: false,
+      notesLog: [],
+      followUpDate: undefined
+    };
+    newLeads.push(l);
+  });
+  return newLeads;
+}
+
 const DataManagementView = ({ 
   transactions, 
   leads,
@@ -1298,11 +938,11 @@ const DataManagementView = ({
       skipEmptyLines: true,
       complete: (results) => {
         if (dataType === 'transactions') {
-            const parsed = processData(results.data);
+            const parsed = processTransactionCSV(results.data);
             setPreviewData(parsed);
             setSelectedPreviewIds(new Set(parsed.map(t => t.id)));
         } else {
-            const parsed = processLeadData(results.data);
+            const parsed = processLeadCSV(results.data);
             setPreviewLeads(parsed);
             setSelectedPreviewIds(new Set(parsed.map(l => l.id)));
         }
@@ -1313,146 +953,6 @@ const DataManagementView = ({
         alert('Failed to parse CSV file.');
       }
     });
-  };
-
-  const processLeadData = (data: any[]) => {
-      const newLeads: Lead[] = [];
-      data.forEach((row, index) => {
-          // Helper to parse dates
-          const parseDate = (str: string) => {
-            if (!str) return '';
-            try {
-                // Handle excel serial dates if necessary, but assuming standard date strings for now
-                // If it's a number (Excel serial), convert it
-                if (!isNaN(Number(str)) && Number(str) > 20000) {
-                     // Excel date serial
-                     const date = new Date((Number(str) - 25569) * 86400 * 1000);
-                     return date.toISOString();
-                }
-                const d = new Date(str);
-                if (!isNaN(d.getTime())) {
-                    return d.toISOString();
-                }
-                return '';
-            } catch (e) {
-                return '';
-            }
-          };
-
-          const type = row['Lead Type']?.trim() || 'True Lead';
-          // Map legacy or variations if needed, but user specified exact strings
-          
-          const l: Lead = {
-              id: Math.random().toString(36).substr(2, 9),
-              type: type,
-              projectName: row['Project Name'] || `Lead ${index + 1}`,
-              contactName: row['Contact'] || '',
-              details: row['Details'] || '',
-              lastSpokeDate: parseDate(row['Last Spoke']),
-              summary: row['Summary of Discussion'] || '',
-              isDeleted: false,
-              notesLog: [],
-              followUpDate: undefined
-          };
-          newLeads.push(l);
-      });
-      return newLeads;
-  };
-
-  const processData = (data: any[]) => {
-    const newTransactions: Transaction[] = [];
-
-    data.forEach((row, index) => {
-      // Helper to clean currency strings
-      const parseCurrency = (str: string) => {
-        if (!str) return 0;
-        return Number(str.replace(/[^0-9.-]+/g, ''));
-      };
-
-      // Helper to clean percent strings
-      const parsePercent = (str: string) => {
-        if (!str) return 0;
-        return Number(str.replace(/[^0-9.-]+/g, ''));
-      };
-
-      // Helper to parse dates
-      const parseDate = (str: string) => {
-        if (!str) return '';
-        try {
-            const d = new Date(str);
-            if (!isNaN(d.getTime())) {
-                return d.toISOString();
-            }
-            return '';
-        } catch (e) {
-            return '';
-        }
-      };
-
-      // Map Stage
-      let stage: PipelineStage = 'LOI'; // Default
-      const rawStage = row['Stage:']?.trim();
-      if (rawStage === 'Closed') stage = 'Closed';
-      else if (rawStage === 'Escrow') stage = 'Escrow';
-      else if (rawStage === 'Contract') stage = 'Contract';
-      else if (rawStage === 'Option') stage = 'Option';
-      
-      const t: Transaction = {
-        id: Math.random().toString(36).substr(2, 9),
-        dealName: row['Seller(s):'] || `Deal ${index + 1}`,
-        stage: stage,
-        price: parseCurrency(row['Price:']),
-        grossCommissionPercent: parsePercent(row['Base Commission']),
-        laoCutPercent: parsePercent(row['LAO Split']),
-        treySplitPercent: parsePercent(row['Trey Commission']),
-        kirkSplitPercent: parsePercent(row['Kirk Commission']),
-        earnestMoney: 0,
-        psaDate: '',
-        feasibilityDate: parseDate(row['Feasability End Date']),
-        coeDate: parseDate(row['Close of Escrow']),
-        address: '',
-        acreage: 0,
-        zoning: '',
-        clientContact: '',
-        clientPhone: '',
-        clientEmail: '',
-        coBroker: '',
-        titleCompany: '',
-        referralSource: '',
-        notes: `Imported from CSV.`,
-        notesLog: [],
-        buyer: {
-            role: 'Buyer',
-            name: row['Buyer:'] || '',
-            entity: ''
-        },
-        seller: {
-            role: 'Seller',
-            name: row['Seller(s):'] || '',
-            entity: ''
-        },
-        otherParties: [],
-        customDates: [],
-        documents: [],
-        apn: row['PID'] || '', // Map PID to apn for now, but also to pid field
-        pid: row['PID'] || '',
-        projectYear: row['Year'] || new Date().getFullYear().toString(),
-        county: '',
-        isDeleted: false
-      };
-
-      if (row['Buyer:2']) {
-          t.otherParties.push({
-              role: 'Buyer 2',
-              name: row['Buyer:2'],
-              entity: ''
-          });
-      }
-
-      newTransactions.push(t);
-    });
-
-    return newTransactions;
   };
 
   const handleConfirmImport = () => {
@@ -2255,6 +1755,10 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
       t.customDates.forEach(d => {
         if (!d.completed) allDates.push({ id: t.id, dealName: t.dealName, label: d.label, date: parseISO(d.date), type: 'custom' });
       });
+    });
+
+    // Include reminders from ALL transactions (including Closed)
+    transactions.filter(t => !t.isDeleted).forEach(t => {
       t.reminders?.forEach(r => {
         if (!r.completed) allDates.push({ id: t.id, dealName: t.dealName, label: r.description || 'Follow Up', date: parseISO(r.date), type: 'reminder', isLead: false });
       });
@@ -4601,11 +4105,6 @@ const TransactionDetailView = ({
               </div>
             </div>
 
-            {/* AI Assistant Widget */}
-            <AIAssistant 
-                transaction={formData} 
-                onUpdateTransaction={handleAIUpdate} 
-            />
           </div>
         </div>
       </div>
@@ -5252,6 +4751,43 @@ export default function App() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
+
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        const [transRes, leadsRes] = await Promise.all([
+          fetch('/transactions.csv'),
+          fetch('/leads.csv')
+        ]);
+        if (transRes.ok) {
+          const text = await transRes.text();
+          Papa.parse(text, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results: any) => {
+              const parsed = processTransactionCSV(results.data);
+              if (parsed.length > 0) setTransactions(parsed);
+            }
+          });
+        }
+        if (leadsRes.ok) {
+          const text = await leadsRes.text();
+          Papa.parse(text, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results: any) => {
+              const parsed = processLeadCSV(results.data);
+              if (parsed.length > 0) setLeads(parsed);
+            }
+          });
+        }
+      } catch (e) {
+        console.log('Could not load CSV data files:', e);
+      }
+    };
+    loadInitialData();
+  }, []);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
