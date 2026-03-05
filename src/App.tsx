@@ -41,7 +41,15 @@ import {
   Edit2,
   Check,
   History,
-  Calendar
+  Calendar,
+  Moon,
+  Sun,
+  AlertTriangle,
+  GripVertical,
+  Columns3,
+  RotateCcw,
+  Target,
+  Eye
 } from 'lucide-react';
 import { 
   format, 
@@ -64,18 +72,20 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { GoogleGenAI, Type } from "@google/genai";
 import Papa from 'papaparse';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip as RechartsTooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
   Cell,
   Pie,
   PieChart as RechartsPieChart,
-  Legend
+  Legend,
+  AreaChart,
+  Area
 } from 'recharts';
 
 // --- Utility Functions ---
@@ -181,10 +191,12 @@ interface Lead {
   lastSpokeDate: string;
   summary: string;
   isDeleted: boolean;
+  deletedAt?: string;
   notesLog?: Note[];
-  followUpDate?: string; // Deprecated in favor of reminders, but kept for backward compatibility if needed
+  followUpDate?: string;
   contacts?: LeadContact[];
   reminders?: LeadReminder[];
+  convertedToTransactionId?: string;
 }
 
 interface Transaction {
@@ -255,11 +267,12 @@ function useCommissionMath(transaction: Transaction) {
 // --- Components ---
 
 const StatusBadge = ({ stage }: { stage: PipelineStage }) => {
-  const colors = {
+  const colors: Record<string, string> = {
     'LOI': 'bg-slate-100 text-slate-700 border-slate-200',
     'Contract': 'bg-blue-50 text-blue-700 border-blue-200',
     'Escrow': 'bg-amber-50 text-amber-700 border-amber-200',
     'Closed': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    'Option': 'bg-orange-50 text-orange-700 border-orange-200',
   };
 
   return (
@@ -1582,9 +1595,14 @@ const DataManagementView = ({
   );
 };
 
-const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { transactions: Transaction[], leads: Lead[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void }) => {
+const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddReminder, darkMode }: { transactions: Transaction[], leads: Lead[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, darkMode?: boolean }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
-  
+  const [showQuickReminder, setShowQuickReminder] = useState(false);
+  const [quickReminderTarget, setQuickReminderTarget] = useState<{ id: string, type: 'transaction' | 'lead' }>({ id: '', type: 'transaction' });
+  const [quickReminderDate, setQuickReminderDate] = useState('');
+  const [quickReminderDesc, setQuickReminderDesc] = useState('');
+  const [notesSearch, setNotesSearch] = useState('');
+
   // Dashboard Metrics & Derived Data
   const { metrics, actionItems, recentActivity, pipelineHealth, leadHealth } = useMemo(() => {
     const activeDeals = transactions.filter(t => t.stage !== 'Closed' && !t.isDeleted);
@@ -1779,11 +1797,131 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
         });
     });
 
-    return allDates
+    const overdue = allDates
+      .filter(d => d.date < today)
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    const upcoming = allDates
       .filter(d => d.date >= today)
       .sort((a, b) => a.date.getTime() - b.date.getTime())
       .slice(0, 5);
+
+    return { upcoming, overdue };
   }, [transactions, leads]);
+
+  // Commission Forecast by Month (next 6 months based on COE dates)
+  const commissionForecast = useMemo(() => {
+    const today = new Date();
+    const months: { month: string, trey: number, kirk: number, total: number }[] = [];
+    for (let i = 0; i < 6; i++) {
+      const m = addMonths(today, i);
+      const mStart = startOfMonth(m);
+      const mEnd = endOfMonth(m);
+      let trey = 0, kirk = 0;
+      transactions.filter(t => !t.isDeleted && t.coeDate).forEach(t => {
+        const coe = parseISO(t.coeDate);
+        if (isWithinInterval(coe, { start: mStart, end: mEnd })) {
+          const gross = t.price * (t.grossCommissionPercent / 100);
+          const net = gross - (gross * (t.laoCutPercent / 100));
+          trey += net * (t.treySplitPercent / 100);
+          kirk += net * (t.kirkSplitPercent / 100);
+        }
+      });
+      months.push({ month: format(m, 'MMM'), trey: Math.round(trey), kirk: Math.round(kirk), total: Math.round(trey + kirk) });
+    }
+    return months;
+  }, [transactions]);
+
+  // Pipeline value by stage (for pie chart)
+  const pipelineByStage = useMemo(() => {
+    const stages: Record<string, number> = {};
+    transactions.filter(t => t.stage !== 'Closed' && !t.isDeleted).forEach(t => {
+      const gross = t.price * (t.grossCommissionPercent / 100);
+      stages[t.stage] = (stages[t.stage] || 0) + gross;
+    });
+    return Object.entries(stages).map(([name, value]) => ({ name, value: Math.round(value) }));
+  }, [transactions]);
+
+  // Commission breakdown per deal (for bar chart, top 5 active deals)
+  const commissionByDeal = useMemo(() => {
+    return transactions
+      .filter(t => t.stage !== 'Closed' && !t.isDeleted)
+      .map(t => {
+        const gross = t.price * (t.grossCommissionPercent / 100);
+        const net = gross - (gross * (t.laoCutPercent / 100));
+        return {
+          name: t.dealName.length > 15 ? t.dealName.substring(0, 15) + '...' : t.dealName,
+          trey: Math.round(net * (t.treySplitPercent / 100)),
+          kirk: Math.round(net * (t.kirkSplitPercent / 100)),
+          lao: Math.round(gross * (t.laoCutPercent / 100)),
+        };
+      })
+      .sort((a, b) => (b.trey + b.kirk + b.lao) - (a.trey + a.kirk + a.lao))
+      .slice(0, 6);
+  }, [transactions]);
+
+  // Lead conversion funnel
+  const leadFunnel = useMemo(() => {
+    const allLeads = leads.filter(l => !l.isDeleted);
+    return [
+      { name: 'True Lead', count: allLeads.filter(l => l.type === 'True Lead').length, color: '#f59e0b' },
+      { name: 'Live Contract', count: allLeads.filter(l => l.type === 'Live Contract').length, color: '#6366f1' },
+      { name: 'Converted', count: allLeads.filter(l => l.type === 'Converted Lead (Escrow)').length, color: '#10b981' },
+      { name: 'Dead', count: allLeads.filter(l => l.type === 'Dead Deal').length, color: '#94a3b8' },
+    ];
+  }, [leads]);
+
+  const STAGE_COLORS: Record<string, string> = { LOI: '#94a3b8', Contract: '#6366f1', Escrow: '#f59e0b', Option: '#f97316' };
+
+  // Quick reminder submit handler
+  const handleQuickReminderSubmit = () => {
+    if (!quickReminderTarget.id || !quickReminderDate || !quickReminderDesc.trim()) return;
+    const reminder: LeadReminder = {
+      id: Math.random().toString(36).substr(2, 9),
+      date: quickReminderDate,
+      description: quickReminderDesc,
+      completed: false
+    };
+    onAddReminder?.(quickReminderTarget.id, quickReminderTarget.type, reminder);
+    setShowQuickReminder(false);
+    setQuickReminderDate('');
+    setQuickReminderDesc('');
+  };
+
+  // Filtered recent activity (for notes search)
+  const filteredActivity = useMemo(() => {
+    if (!notesSearch) return recentActivity;
+    const lower = notesSearch.toLowerCase();
+    return recentActivity.filter(a =>
+      a.content.toLowerCase().includes(lower) ||
+      a.sourceName.toLowerCase().includes(lower)
+    );
+  }, [recentActivity, notesSearch]);
+
+  // All notes across all deals/leads for global search
+  const allNotes = useMemo(() => {
+    if (!notesSearch) return [];
+    const lower = notesSearch.toLowerCase();
+    const notes: typeof recentActivity = [];
+    [...transactions.filter(t => !t.isDeleted), ...leads.filter(l => !l.isDeleted)].forEach(obj => {
+      const isLead = 'projectName' in obj;
+      obj.notesLog?.forEach(note => {
+        if (note.content.toLowerCase().includes(lower) || (isLead ? (obj as Lead).projectName : (obj as Transaction).dealName).toLowerCase().includes(lower)) {
+          notes.push({
+            id: note.id,
+            sourceId: obj.id,
+            sourceName: isLead ? (obj as Lead).projectName : (obj as Transaction).dealName,
+            content: note.content,
+            date: note.date,
+            isLead
+          });
+        }
+      });
+    });
+    return notes.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 20);
+  }, [transactions, leads, notesSearch]);
+
+  const displayedActivity = notesSearch ? allNotes : filteredActivity;
 
   const getEventsForDay = (date: Date) => {
     const events: { id: string, dealName: string, type: string, label: string, isLead?: boolean }[] = [];
@@ -1963,20 +2101,107 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
             </div>
           </div>
 
-          {/* Recent Activity Feed */}
+          {/* Commission Forecast Timeline Chart */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 bg-slate-50">
-                <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
-                    <History className="w-4 h-4 text-slate-500" /> Recent Developments
-                </h2>
+              <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
+                <TrendingUp className="w-4 h-4 text-slate-500" /> Commission Forecast (6 Months)
+              </h2>
             </div>
-            <div className="divide-y divide-slate-100">
-                {recentActivity.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400 italic text-sm">No recent activity logged.</div>
+            <div className="p-4" style={{ height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={commissionForecast}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <RechartsTooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Area type="monotone" dataKey="kirk" stackId="1" stroke="#6366f1" fill="#6366f1" fillOpacity={0.3} name="Kirk" />
+                  <Area type="monotone" dataKey="trey" stackId="1" stroke="#10b981" fill="#10b981" fillOpacity={0.3} name="Trey" />
+                  <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Charts Row: Pipeline Pie + Commission Bar */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Pipeline Value by Stage */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-200 bg-slate-50">
+                <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
+                  Pipeline by Stage
+                </h2>
+              </div>
+              <div className="p-4" style={{ height: 240 }}>
+                {pipelineByStage.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-slate-400 italic text-sm">No active deals.</div>
                 ) : (
-                    recentActivity.map((act, i) => (
-                        <div 
-                            key={i} 
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsPieChart>
+                      <Pie data={pipelineByStage} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={10}>
+                        {pipelineByStage.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={STAGE_COLORS[entry.name] || '#6366f1'} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip formatter={(value: number) => formatCurrency(value)} />
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* Commission Breakdown by Deal */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-200 bg-slate-50">
+                <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
+                  Commission by Deal
+                </h2>
+              </div>
+              <div className="p-4" style={{ height: 240 }}>
+                {commissionByDeal.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-slate-400 italic text-sm">No active deals.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={commissionByDeal} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis type="number" tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                      <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10, fill: '#64748b' }} />
+                      <RechartsTooltip formatter={(value: number) => formatCurrency(value)} />
+                      <Bar dataKey="lao" stackId="a" fill="#94a3b8" name="LAO Cut" radius={[0, 0, 0, 0]} />
+                      <Bar dataKey="kirk" stackId="a" fill="#6366f1" name="Kirk" />
+                      <Bar dataKey="trey" stackId="a" fill="#10b981" name="Trey" radius={[0, 4, 4, 0]} />
+                      <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Activity Feed with Notes Search */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
+                <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider shrink-0">
+                    <History className="w-4 h-4 text-slate-500" /> {notesSearch ? 'Notes Search' : 'Recent Developments'}
+                </h2>
+                <div className="relative w-full max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search all notes..."
+                    value={notesSearch}
+                    onChange={(e) => setNotesSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+            </div>
+            <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
+                {displayedActivity.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 italic text-sm">{notesSearch ? 'No notes matching your search.' : 'No recent activity logged.'}</div>
+                ) : (
+                    displayedActivity.map((act, i) => (
+                        <div
+                            key={i}
                             onClick={() => act.isLead ? onSelectLead(act.sourceId) : onSelectDeal(act.sourceId)}
                             className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group"
                         >
@@ -2003,24 +2228,72 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
 
         {/* Sidebar Column */}
         <div className="flex flex-col gap-6">
+          {/* Action Items Panel */}
+          {actionItems.length > 0 && (
+            <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-6">
+              <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
+                <AlertTriangle className="w-4 h-4 text-red-500" /> Action Items
+                <span className="ml-auto text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">{actionItems.length}</span>
+              </h3>
+              <div className="space-y-2">
+                {actionItems.map((item, i) => (
+                  <div
+                    key={i}
+                    onClick={() => item.isLead ? onSelectLead(item.id) : onSelectDeal(item.id)}
+                    className={cn(
+                      "p-3 rounded-xl border cursor-pointer hover:translate-x-1 transition-all text-xs",
+                      item.type === 'urgent' ? "bg-red-50 border-red-100" : item.type === 'warning' ? "bg-amber-50 border-amber-100" : "bg-blue-50 border-blue-100"
+                    )}
+                  >
+                    <p className={cn("font-bold", item.type === 'urgent' ? "text-red-700" : item.type === 'warning' ? "text-amber-700" : "text-blue-700")}>{item.title}</p>
+                    <p className="text-slate-500 mt-0.5">{item.subtitle}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Lead Conversion Funnel */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
+              <Target className="w-4 h-4 text-slate-500" /> Lead Funnel
+            </h3>
+            <div className="space-y-3">
+              {leadFunnel.map((stage, i) => {
+                const maxCount = Math.max(...leadFunnel.map(s => s.count), 1);
+                return (
+                  <div key={stage.name}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-600 font-medium">{stage.name}</span>
+                      <span className="font-bold text-slate-900">{stage.count}</span>
+                    </div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(stage.count / maxCount) * 100}%`, backgroundColor: stage.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Monthly Closing Progress */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col flex-1">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col">
             <h3 className="font-bold text-slate-900 mb-4 text-sm uppercase tracking-wider flex items-center justify-between">
                 <span>Closing in {format(currentDate, 'MMMM')}</span>
                 <span className="text-[10px] text-slate-400">{metrics.monthlyDeals.length} Deals</span>
             </h3>
-          
+
           {metrics.monthlyDeals.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-sm py-12">
+            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-sm py-8">
               <CalendarIcon className="w-8 h-8 mb-2 opacity-10" />
               <p className="italic">No deals closing this month.</p>
             </div>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {metrics.monthlyDeals.map(deal => {
                 const gross = deal.price * (deal.grossCommissionPercent / 100);
                 const percentOfTotal = metrics.monthlyGross > 0 ? (gross / metrics.monthlyGross) * 100 : 0;
-                
+
                 return (
                   <div key={deal.id} className="group cursor-pointer" onClick={() => onSelectDeal(deal.id)}>
                     <div className="flex justify-between text-xs font-bold mb-1.5">
@@ -2028,10 +2301,7 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
                       <span className="text-slate-900 shrink-0">{formatCurrency(gross)}</span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div 
-                        className="bg-emerald-500 h-full rounded-full transition-all duration-700 ease-out" 
-                        style={{ width: `${percentOfTotal}%` }}
-                      />
+                      <div className="bg-emerald-500 h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${percentOfTotal}%` }} />
                     </div>
                     <div className="flex justify-between text-[10px] text-slate-400 font-bold mt-1.5 uppercase tracking-tighter">
                       <span>{format(parseISO(deal.coeDate), 'MMM d')}</span>
@@ -2040,12 +2310,12 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
                   </div>
                 );
               })}
-              
-              <div className="pt-6 border-t border-slate-100 mt-auto">
+
+              <div className="pt-4 border-t border-slate-100">
                 <div className="flex justify-between items-end">
                   <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Projected</p>
-                    <p className="text-2xl font-bold text-slate-900 tracking-tight">{formatCurrency(metrics.monthlyGross)}</p>
+                    <p className="text-xl font-bold text-slate-900 tracking-tight">{formatCurrency(metrics.monthlyGross)}</p>
                   </div>
                   <div className="text-right">
                     <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Trey's Take</p>
@@ -2057,19 +2327,53 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
           )}
         </div>
 
-          {/* Upcoming Deadlines Widget */}
+          {/* Upcoming Deadlines Widget with Overdue Section */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
-              <Clock className="w-4 h-4 text-slate-500" /> Upcoming Deadlines
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
+                <Clock className="w-4 h-4 text-slate-500" /> Deadlines
+              </h3>
+              <button
+                onClick={() => setShowQuickReminder(true)}
+                className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 uppercase tracking-wider"
+              >
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
+
+            {/* Overdue Items */}
+            {upcomingDeadlines.overdue.length > 0 && (
+              <div className="mb-4">
+                <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-2 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Overdue ({upcomingDeadlines.overdue.length})
+                </p>
+                <div className="space-y-2">
+                  {upcomingDeadlines.overdue.slice(0, 3).map((item, i) => (
+                    <div
+                      key={`overdue-${i}`}
+                      className="flex items-start gap-3 p-2.5 bg-red-50 rounded-xl border border-red-100 cursor-pointer hover:bg-red-100 transition-all"
+                      onClick={() => item.isLead ? onSelectLead(item.id) : onSelectDeal(item.id)}
+                    >
+                      <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 bg-red-500" />
+                      <div>
+                        <p className="text-xs font-bold text-red-800 leading-tight">{item.label}</p>
+                        <p className="text-[10px] text-red-600 font-medium">{item.dealName} — {format(item.date, 'MMM d')}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Upcoming Items */}
             <div className="space-y-3">
-              {upcomingDeadlines.length === 0 ? (
+              {upcomingDeadlines.upcoming.length === 0 && upcomingDeadlines.overdue.length === 0 ? (
                 <p className="text-sm text-slate-400 italic">No upcoming deadlines.</p>
               ) : (
-                upcomingDeadlines.map((item, i) => (
-                  <div 
-                    key={i} 
-                    className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all hover:translate-x-1" 
+                upcomingDeadlines.upcoming.map((item, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all hover:translate-x-1"
                     onClick={() => item.isLead ? onSelectLead(item.id) : onSelectDeal(item.id)}
                   >
                     <div className={cn(
@@ -2091,6 +2395,52 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead }: { tr
           </div>
         </div>
     </div>
+
+    {/* Quick Add Reminder Modal */}
+    {showQuickReminder && (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setShowQuickReminder(false)}>
+        <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+          <h3 className="text-lg font-bold text-slate-900 mb-4">Quick Add Reminder</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Deal or Lead</label>
+              <select
+                value={`${quickReminderTarget.type}:${quickReminderTarget.id}`}
+                onChange={e => {
+                  const [type, id] = e.target.value.split(':');
+                  setQuickReminderTarget({ type: type as 'transaction' | 'lead', id });
+                }}
+                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+              >
+                <option value="transaction:">Select...</option>
+                <optgroup label="Deals">
+                  {transactions.filter(t => !t.isDeleted).map(t => (
+                    <option key={t.id} value={`transaction:${t.id}`}>{t.dealName}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Leads">
+                  {leads.filter(l => !l.isDeleted).map(l => (
+                    <option key={l.id} value={`lead:${l.id}`}>{l.projectName}</option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Date</label>
+              <input type="date" value={quickReminderDate} onChange={e => setQuickReminderDate(e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Description</label>
+              <input type="text" value={quickReminderDesc} onChange={e => setQuickReminderDesc(e.target.value)} placeholder="e.g. Call buyer re: LOI" className="w-full p-2 border border-slate-200 rounded-lg text-sm" />
+            </div>
+          </div>
+          <div className="flex justify-end gap-3 mt-6">
+            <button onClick={() => setShowQuickReminder(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
+            <button onClick={handleQuickReminderSubmit} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors" disabled={!quickReminderTarget.id || !quickReminderDate || !quickReminderDesc.trim()}>Add Reminder</button>
+          </div>
+        </div>
+      </div>
+    )}
     </div>
   );
 };
@@ -2189,17 +2539,34 @@ const LeadsView = ({
           <h1 className="text-2xl font-bold text-slate-900">Leads Tracker</h1>
           <p className="text-slate-500">Manage and track your potential deals.</p>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex gap-2 w-full sm:w-auto items-center">
            <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search leads..." 
+            <input
+              type="text"
+              placeholder="Search leads..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
+          <button
+            onClick={() => {
+              const headers = ['Type', 'Project Name', 'Contact', 'Details', 'Last Spoke', 'Summary'];
+              const rows = filteredLeads.map(l => [l.type, l.projectName, l.contactName, l.details, l.lastSpokeDate || '', l.summary]);
+              const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'leads_export.csv';
+              a.click();
+            }}
+            className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 shrink-0"
+            title="Export CSV"
+          >
+            <Download className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -2238,33 +2605,33 @@ const LeadsView = ({
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
+            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 sticky top-0 z-10">
               <tr>
-                <th className="px-4 py-3 w-10">
-                  <input 
-                    type="checkbox" 
+                <th className="px-4 py-3 w-10 bg-slate-50">
+                  <input
+                    type="checkbox"
                     checked={filteredLeads.length > 0 && selectedIds.size === filteredLeads.length}
                     onChange={toggleSelectAll}
                     className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                   />
                 </th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('type')}>
+                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('type')}>
                     <div className="flex items-center gap-1">Type <ArrowUpDown className="w-3 h-3" /></div>
                 </th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('projectName')}>
+                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('projectName')}>
                     <div className="flex items-center gap-1">Project Name <ArrowUpDown className="w-3 h-3" /></div>
                 </th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('contactName')}>
+                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('contactName')}>
                     <div className="flex items-center gap-1">Contact <ArrowUpDown className="w-3 h-3" /></div>
                 </th>
-                <th className="px-4 py-3">Details</th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('lastSpokeDate')}>
+                <th className="px-4 py-3 bg-slate-50">Details</th>
+                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('lastSpokeDate')}>
                     <div className="flex items-center gap-1">Last Spoke <ArrowUpDown className="w-3 h-3" /></div>
                 </th>
-                <th className="px-4 py-3">Summary</th>
-                <th className="px-4 py-3 w-10"></th>
+                <th className="px-4 py-3 bg-slate-50">Summary</th>
+                <th className="px-4 py-3 w-10 bg-slate-50"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -2802,22 +3169,55 @@ const LeadDetailView = ({
   );
 };
 
-const PipelineView = ({ 
-  transactions, 
+const getDealHealth = (deal: Transaction): 'green' | 'yellow' | 'red' => {
+  if (deal.stage === 'Closed') return 'green';
+  const today = new Date();
+  const issues: string[] = [];
+  // Overdue reminders
+  deal.reminders?.forEach(r => {
+    if (!r.completed && isBefore(parseISO(r.date), today)) issues.push('overdue');
+  });
+  // Missing critical dates
+  if (!deal.coeDate) issues.push('no-coe');
+  if (!deal.feasibilityDate) issues.push('no-feas');
+  // Approaching deadlines (< 7 days)
+  if (deal.coeDate && isBefore(parseISO(deal.coeDate), addDays(today, 7)) && isAfter(parseISO(deal.coeDate), today)) issues.push('approaching');
+  if (deal.feasibilityDate && isBefore(parseISO(deal.feasibilityDate), addDays(today, 7)) && isAfter(parseISO(deal.feasibilityDate), today)) issues.push('approaching');
+
+  if (issues.includes('overdue')) return 'red';
+  if (issues.length > 0) return 'yellow';
+  return 'green';
+};
+
+const DealHealthBadge = ({ health }: { health: 'green' | 'yellow' | 'red' }) => {
+  const styles = {
+    green: 'bg-emerald-500',
+    yellow: 'bg-amber-400',
+    red: 'bg-red-500 animate-pulse',
+  };
+  return <div className={cn("w-2 h-2 rounded-full shrink-0", styles[health])} title={health === 'green' ? 'Healthy' : health === 'yellow' ? 'Needs attention' : 'Overdue items'} />;
+};
+
+const PipelineView = ({
+  transactions,
   onSelectDeal,
   onDeleteDeal,
-  onBatchDelete
-}: { 
-  transactions: Transaction[], 
+  onBatchDelete,
+  onUpdateTransaction
+}: {
+  transactions: Transaction[],
   onSelectDeal: (id: string) => void,
   onDeleteDeal: (id: string) => void,
-  onBatchDelete: (ids: string[]) => void
+  onBatchDelete: (ids: string[]) => void,
+  onUpdateTransaction?: (t: Transaction) => void
 }) => {
   const [search, setSearch] = useState('');
   const [selectedStages, setSelectedStages] = useState<Set<PipelineStage>>(new Set(['LOI', 'Contract', 'Escrow', 'Closed', 'Option']));
   const [filterYear, setFilterYear] = useState<string>('All');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
+  const [dragDealId, setDragDealId] = useState<string | null>(null);
 
   const toggleStageFilter = (stage: PipelineStage) => {
     const newSet = new Set(selectedStages);
@@ -2916,12 +3316,42 @@ const PipelineView = ({
 
   const SortIcon = ({ columnKey }: { columnKey: string }) => {
     if (sortConfig?.key !== columnKey) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-20" />;
-    return sortConfig.direction === 'asc' 
-      ? <ArrowUp className="w-3 h-3 ml-1 text-indigo-600" /> 
+    return sortConfig.direction === 'asc'
+      ? <ArrowUp className="w-3 h-3 ml-1 text-indigo-600" />
       : <ArrowDown className="w-3 h-3 ml-1 text-indigo-600" />;
   };
 
+  const exportCSV = () => {
+    const headers = ['Year', 'Stage', 'Deal Name', 'Buyer', 'Seller', 'Price', 'Base %', 'LAO %', 'Trey %', 'Kirk %', 'Feas Date', 'COE Date', 'PID'];
+    const rows = filteredData.map(d => [
+      d.projectYear || '', d.stage, d.dealName, d.buyer.name, d.seller.name,
+      d.price, d.grossCommissionPercent, d.laoCutPercent, d.treySplitPercent, d.kirkSplitPercent,
+      d.feasibilityDate || '', d.coeDate || '', d.pid || ''
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pipeline_export.csv';
+    a.click();
+  };
+
+  const handleDragStart = (dealId: string) => setDragDealId(dealId);
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+  const handleDrop = (stage: PipelineStage) => {
+    if (!dragDealId || !onUpdateTransaction) return;
+    const deal = transactions.find(t => t.id === dragDealId);
+    if (deal && deal.stage !== stage) {
+      onUpdateTransaction({ ...deal, stage });
+    }
+    setDragDealId(null);
+  };
+
+  const kanbanStages: PipelineStage[] = ['LOI', 'Contract', 'Escrow', 'Option', 'Closed'];
+
   return (
+    <div className="space-y-4">
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       {/* Toolbar */}
       <div className="p-4 border-b border-slate-200 flex flex-col gap-4 bg-slate-50">
@@ -2930,15 +3360,28 @@ const PipelineView = ({
             <List className="w-5 h-5 text-slate-500" />
             All Transactions
           </h2>
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search deals..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative w-full sm:w-52">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search deals..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+            <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden">
+              <button onClick={() => setViewMode('table')} className={cn("p-2 transition-colors", viewMode === 'table' ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50")} title="Table View">
+                <List className="w-4 h-4" />
+              </button>
+              <button onClick={() => setViewMode('kanban')} className={cn("p-2 transition-colors", viewMode === 'kanban' ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50")} title="Kanban View">
+                <Columns3 className="w-4 h-4" />
+              </button>
+            </div>
+            <button onClick={exportCSV} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200" title="Export CSV">
+              <Download className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -2993,23 +3436,24 @@ const PipelineView = ({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
+      {/* Table View */}
+      {viewMode === 'table' && (
+      <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
         <table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 whitespace-nowrap">
+          <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 whitespace-nowrap sticky top-0 z-10">
             <tr>
-              <th className="px-4 py-3 w-10">
-                <input 
-                  type="checkbox" 
+              <th className="px-4 py-3 w-10 bg-slate-50">
+                <input
+                  type="checkbox"
                   checked={selectedIds.size === filteredData.length && filteredData.length > 0}
                   onChange={toggleAll}
                   className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                 />
               </th>
-              <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('projectYear')}>
+              <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('projectYear')}>
                   <div className="flex items-center">Year <SortIcon columnKey="projectYear" /></div>
               </th>
-              <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('stage')}>
+              <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('stage')}>
                   <div className="flex items-center">Stage <SortIcon columnKey="stage" /></div>
               </th>
               <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('dealName')}>
@@ -3056,7 +3500,12 @@ const PipelineView = ({
                   </td>
                   <td className="px-4 py-3 text-slate-500">{deal.projectYear || '-'}</td>
                   <td className="px-4 py-3"><StatusBadge stage={deal.stage} /></td>
-                  <td className="px-4 py-3 font-medium text-slate-900 group-hover:text-indigo-600 max-w-[150px] truncate" title={deal.dealName}>{deal.dealName}</td>
+                  <td className="px-4 py-3 font-medium text-slate-900 group-hover:text-indigo-600 max-w-[150px] truncate" title={deal.dealName}>
+                    <div className="flex items-center gap-2">
+                      <DealHealthBadge health={getDealHealth(deal)} />
+                      {deal.dealName}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-slate-600 max-w-[120px] truncate" title={deal.buyer.name}>{deal.buyer.name || '-'}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-600">{formatCurrency(deal.price)}</td>
                   <td className="px-4 py-3 text-right text-slate-500">{deal.grossCommissionPercent}%</td>
@@ -3088,11 +3537,61 @@ const PipelineView = ({
           </tbody>
         </table>
       </div>
-      {filteredData.length === 0 && (
+      )}
+      {filteredData.length === 0 && viewMode === 'table' && (
         <div className="p-12 text-center text-slate-500">
             <p>No transactions found matching your filters.</p>
         </div>
       )}
+    </div>
+
+    {/* Kanban View */}
+    {viewMode === 'kanban' && (
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4">
+        {kanbanStages.map(stage => {
+          const stageDeals = filteredData.filter(d => d.stage === stage);
+          const stageColors: Record<string, string> = {
+            LOI: 'border-slate-300 bg-slate-50',
+            Contract: 'border-blue-300 bg-blue-50',
+            Escrow: 'border-amber-300 bg-amber-50',
+            Option: 'border-orange-300 bg-orange-50',
+            Closed: 'border-emerald-300 bg-emerald-50',
+          };
+          return (
+            <div
+              key={stage}
+              className={cn("rounded-xl border-2 border-dashed p-3 min-h-[200px] transition-colors", stageColors[stage], dragDealId && "border-indigo-400")}
+              onDragOver={handleDragOver}
+              onDrop={() => handleDrop(stage)}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <StatusBadge stage={stage} />
+                <span className="text-[10px] font-bold text-slate-400">{stageDeals.length}</span>
+              </div>
+              <div className="space-y-2">
+                {stageDeals.map(deal => (
+                  <div
+                    key={deal.id}
+                    draggable
+                    onDragStart={() => handleDragStart(deal.id)}
+                    onClick={() => onSelectDeal(deal.id)}
+                    className="bg-white rounded-lg border border-slate-200 p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-all group"
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <GripVertical className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                      <DealHealthBadge health={getDealHealth(deal)} />
+                      <span className="text-xs font-bold text-slate-900 truncate">{deal.dealName}</span>
+                    </div>
+                    <p className="text-[10px] font-mono text-slate-500 ml-5">{formatCurrency(deal.price)}</p>
+                    {deal.coeDate && <p className="text-[10px] text-slate-400 ml-5 mt-1">COE: {format(parseISO(deal.coeDate), 'MM/dd/yy')}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    )}
     </div>
   );
 };
@@ -4635,66 +5134,98 @@ const NewTransactionModal = ({
 
 // --- Recently Deleted View ---
 
-const RecentlyDeletedView = ({ 
-  transactions, 
-  onRestore, 
-  onPermanentDelete 
-}: { 
-  transactions: Transaction[], 
+const RecentlyDeletedView = ({
+  transactions,
+  leads,
+  onRestore,
+  onPermanentDelete,
+  onRestoreLead,
+  onPermanentDeleteLead,
+}: {
+  transactions: Transaction[],
+  leads: Lead[],
   onRestore: (id: string) => void,
-  onPermanentDelete: (id: string) => void
+  onPermanentDelete: (id: string) => void,
+  onRestoreLead: (id: string) => void,
+  onPermanentDeleteLead: (id: string) => void,
 }) => {
+  const [tab, setTab] = useState<'transactions' | 'leads'>('transactions');
+
+  const DeleteRow = ({ name, deletedAt, onRestore, onDelete, confirmMsg }: { key?: string, name: string, deletedAt?: string, onRestore: () => void, onDelete: () => void, confirmMsg: string }) => (
+    <tr className="hover:bg-slate-50">
+      <td className="px-6 py-4 font-medium text-slate-900">{name}</td>
+      <td className="px-6 py-4 text-slate-500">
+        {deletedAt ? format(parseISO(deletedAt), 'MMM d, yyyy h:mm a') : '-'}
+      </td>
+      <td className="px-6 py-4 text-right">
+        <div className="flex justify-end gap-2">
+          <button onClick={onRestore} className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1">
+            <RotateCcw className="w-3 h-3" /> Restore
+          </button>
+          <button
+            onClick={() => { if (confirm(confirmMsg)) onDelete(); }}
+            className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+          >
+            Delete Forever
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200 bg-slate-50">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
         <h2 className="font-semibold text-slate-900 flex items-center gap-2">
           <Trash2 className="w-5 h-5 text-slate-500" />
           Recently Deleted
         </h2>
+        <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+          <button onClick={() => setTab('transactions')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'transactions' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+            Transactions {transactions.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{transactions.length}</span>}
+          </button>
+          <button onClick={() => setTab('leads')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'leads' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+            Leads {leads.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{leads.length}</span>}
+          </button>
+        </div>
       </div>
-      
+
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
             <tr>
-              <th className="px-6 py-3">Deal Name</th>
+              <th className="px-6 py-3">{tab === 'transactions' ? 'Deal Name' : 'Project Name'}</th>
               <th className="px-6 py-3">Deleted At</th>
               <th className="px-6 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {transactions.map((deal) => (
-              <tr key={deal.id} className="hover:bg-slate-50">
-                <td className="px-6 py-4 font-medium text-slate-900">{deal.dealName}</td>
-                <td className="px-6 py-4 text-slate-500">
-                  {deal.deletedAt ? format(parseISO(deal.deletedAt), 'MMM d, yyyy h:mm a') : '-'}
-                </td>
-                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                  <button 
-                    onClick={() => onRestore(deal.id)}
-                    className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-                  >
-                    Restore
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (confirm('Are you sure you want to permanently delete this transaction? This cannot be undone.')) {
-                        onPermanentDelete(deal.id);
-                      }
-                    }}
-                    className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-                  >
-                    Delete Forever
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {transactions.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-6 py-12 text-center text-slate-500">
-                  No recently deleted transactions.
-                </td>
-              </tr>
+            {tab === 'transactions' ? (
+              transactions.length === 0 ? (
+                <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-500">No recently deleted transactions.</td></tr>
+              ) : transactions.map(deal => (
+                <DeleteRow
+                  key={deal.id}
+                  name={deal.dealName}
+                  deletedAt={deal.deletedAt}
+                  onRestore={() => onRestore(deal.id)}
+                  onDelete={() => onPermanentDelete(deal.id)}
+                  confirmMsg="Permanently delete this transaction? This cannot be undone."
+                />
+              ))
+            ) : (
+              leads.length === 0 ? (
+                <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-500">No recently deleted leads.</td></tr>
+              ) : leads.map(lead => (
+                <DeleteRow
+                  key={lead.id}
+                  name={lead.projectName}
+                  deletedAt={lead.deletedAt}
+                  onRestore={() => onRestoreLead(lead.id)}
+                  onDelete={() => onPermanentDeleteLead(lead.id)}
+                  confirmMsg="Permanently delete this lead? This cannot be undone."
+                />
+              ))
             )}
           </tbody>
         </table>
@@ -4751,6 +5282,7 @@ export default function App() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
+  const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -4810,6 +5342,7 @@ export default function App() {
   const activeTransactions = useMemo(() => transactions.filter(t => !t.isDeleted), [transactions]);
   const deletedTransactions = useMemo(() => transactions.filter(t => t.isDeleted), [transactions]);
   const activeLeads = useMemo(() => leads.filter(l => !l.isDeleted), [leads]);
+  const deletedLeads = useMemo(() => leads.filter(l => l.isDeleted), [leads]);
 
   const handleSelectDeal = (id: string) => {
     setSelectedDealId(id);
@@ -4901,6 +5434,33 @@ export default function App() {
     });
   };
 
+  const handleRestoreLead = (id: string) => {
+    setLeads(prev => prev.map(l =>
+      l.id === id ? { ...l, isDeleted: false, deletedAt: undefined } : l
+    ));
+  };
+
+  const handlePermanentDeleteLead = (id: string) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      type: 'permanent',
+      ids: [id],
+      target: 'lead'
+    });
+  };
+
+  const handleAddReminder = (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => {
+    if (targetType === 'transaction') {
+      setTransactions(prev => prev.map(t =>
+        t.id === targetId ? { ...t, reminders: [...(t.reminders || []), reminder] } : t
+      ));
+    } else {
+      setLeads(prev => prev.map(l =>
+        l.id === targetId ? { ...l, reminders: [...(l.reminders || []), reminder] } : l
+      ));
+    }
+  };
+
   const executeDelete = () => {
     const { type, ids, target } = deleteConfirmation;
     
@@ -4920,15 +5480,17 @@ export default function App() {
         }
         }
     } else {
-        // Lead deletion (currently permanent as we don't have soft delete view for leads yet, or maybe we should soft delete?)
-        // Let's soft delete to be safe, but we don't have a restore view for leads yet.
-        // For now, let's just permanently delete leads to keep it simple as requested, or soft delete but filter them out.
-        // The user didn't ask for restore leads, so let's just filter them out.
-        setLeads(prev => prev.filter(l => !ids.includes(l.id)));
-        
-        if (selectedLeadId && ids.includes(selectedLeadId)) {
+        if (type === 'permanent') {
+          setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+        } else {
+          // Soft delete leads
+          setLeads(prev => prev.map(l =>
+            ids.includes(l.id) ? { ...l, isDeleted: true, deletedAt: new Date().toISOString() } : l
+          ));
+          if (selectedLeadId && ids.includes(selectedLeadId)) {
             setSelectedLeadId(null);
             setCurrentView('leads');
+          }
         }
     }
     
@@ -4954,8 +5516,8 @@ export default function App() {
       className={cn(
         "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm",
         currentView === view && !selectedDealId && !selectedLeadId
-          ? "bg-indigo-50 text-indigo-700" 
-          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+          ? "bg-indigo-50 text-indigo-700"
+          : darkMode ? "text-slate-300 hover:bg-slate-700 hover:text-slate-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
         isSidebarCollapsed && "justify-center px-2"
       )}
       title={isSidebarCollapsed ? label : undefined}
@@ -4966,9 +5528,9 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex">
+    <div className={cn("min-h-screen font-sans flex transition-colors duration-300", darkMode ? "bg-slate-900 text-slate-100 dark" : "bg-slate-50 text-slate-900")}>
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 z-50 flex items-center justify-between px-4">
+      <div className={cn("md:hidden fixed top-0 left-0 right-0 h-16 border-b z-50 flex items-center justify-between px-4", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
         <div className="flex items-center gap-2 font-bold text-slate-900">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
             <TrendingUp className="w-5 h-5" />
@@ -4982,14 +5544,13 @@ export default function App() {
 
       {/* Sidebar Navigation */}
       <aside className={cn(
-        "fixed md:sticky top-0 left-0 z-40 h-screen bg-white border-r border-slate-200 transition-all duration-300 ease-in-out flex flex-col shrink-0",
-        // Mobile behavior: fixed, transform based on state
+        "fixed md:sticky top-0 left-0 z-40 h-screen border-r transition-all duration-300 ease-in-out flex flex-col shrink-0",
+        darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200",
         "transform md:transform-none",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-        // Width behavior
         isSidebarCollapsed ? "w-20" : "w-64"
       )}>
-        <div className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
+        <div className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl", darkMode ? "text-slate-100" : "text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm shadow-indigo-200 shrink-0">
             <TrendingUp className="w-5 h-5" />
           </div>
@@ -5040,10 +5601,22 @@ export default function App() {
             )}
           </div>
           
+          {/* Dark Mode Toggle */}
+          <button
+            onClick={() => setDarkMode(d => !d)}
+            className="w-full mt-2 p-2 flex items-center justify-center gap-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-colors"
+            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {darkMode
+              ? <Sun className="w-4 h-4" />
+              : <Moon className="w-4 h-4" />}
+            {!isSidebarCollapsed && <span className="text-xs font-medium">{darkMode ? 'Light Mode' : 'Dark Mode'}</span>}
+          </button>
+
           {/* Collapse Toggle (Desktop Only) */}
-          <button 
+          <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="hidden md:flex w-full mt-2 p-2 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-colors"
+            className="hidden md:flex w-full mt-1 p-2 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-colors"
           >
             {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <div className="flex items-center gap-2 text-xs font-medium"><ChevronRight className="w-4 h-4 rotate-180" /> Collapse Sidebar</div>}
           </button>
@@ -5059,11 +5632,13 @@ export default function App() {
                 <h1 className="text-2xl font-bold text-slate-900">Executive Dashboard</h1>
                 <p className="text-slate-500">Welcome back. Here's your pipeline overview.</p>
               </div>
-              <DashboardView 
-                transactions={activeTransactions} 
+              <DashboardView
+                transactions={activeTransactions}
                 leads={leads}
-                onSelectDeal={handleSelectDeal} 
+                onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
+                onAddReminder={handleAddReminder}
+                darkMode={darkMode}
               />
             </div>
           )}
@@ -5074,11 +5649,12 @@ export default function App() {
                 <h1 className="text-2xl font-bold text-slate-900">Pipeline Manager</h1>
                 <p className="text-slate-500">Manage your active and closed transactions.</p>
               </div>
-              <PipelineView 
-                transactions={activeTransactions} 
-                onSelectDeal={handleSelectDeal} 
+              <PipelineView
+                transactions={activeTransactions}
+                onSelectDeal={handleSelectDeal}
                 onDeleteDeal={handleDeleteTransaction}
                 onBatchDelete={handleBatchDelete}
+                onUpdateTransaction={handleUpdateTransaction}
               />
             </div>
           )}
@@ -5111,12 +5687,15 @@ export default function App() {
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
                 <h1 className="text-2xl font-bold text-slate-900">Recently Deleted</h1>
-                <p className="text-slate-500">Restore or permanently delete transactions.</p>
+                <p className="text-slate-500">Restore or permanently delete items.</p>
               </div>
-              <RecentlyDeletedView 
+              <RecentlyDeletedView
                 transactions={deletedTransactions}
+                leads={deletedLeads}
                 onRestore={handleRestoreTransaction}
                 onPermanentDelete={handlePermanentDeleteTransaction}
+                onRestoreLead={handleRestoreLead}
+                onPermanentDeleteLead={handlePermanentDeleteLead}
               />
             </div>
           )}
