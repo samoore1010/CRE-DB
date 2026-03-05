@@ -3179,7 +3179,7 @@ const getDealHealth = (deal: Transaction): 'green' | 'yellow' | 'red' => {
   });
   // Missing critical dates
   if (!deal.coeDate) issues.push('no-coe');
-  if (!deal.feasibilityDate && deal.stage !== 'Closed') issues.push('no-feas');
+  if (!deal.feasibilityDate) issues.push('no-feas');
   // Approaching deadlines (< 7 days)
   if (deal.coeDate && isBefore(parseISO(deal.coeDate), addDays(today, 7)) && isAfter(parseISO(deal.coeDate), today)) issues.push('approaching');
   if (deal.feasibilityDate && isBefore(parseISO(deal.feasibilityDate), addDays(today, 7)) && isAfter(parseISO(deal.feasibilityDate), today)) issues.push('approaching');
@@ -5134,66 +5134,98 @@ const NewTransactionModal = ({
 
 // --- Recently Deleted View ---
 
-const RecentlyDeletedView = ({ 
-  transactions, 
-  onRestore, 
-  onPermanentDelete 
-}: { 
-  transactions: Transaction[], 
+const RecentlyDeletedView = ({
+  transactions,
+  leads,
+  onRestore,
+  onPermanentDelete,
+  onRestoreLead,
+  onPermanentDeleteLead,
+}: {
+  transactions: Transaction[],
+  leads: Lead[],
   onRestore: (id: string) => void,
-  onPermanentDelete: (id: string) => void
+  onPermanentDelete: (id: string) => void,
+  onRestoreLead: (id: string) => void,
+  onPermanentDeleteLead: (id: string) => void,
 }) => {
+  const [tab, setTab] = useState<'transactions' | 'leads'>('transactions');
+
+  const DeleteRow = ({ name, deletedAt, onRestore, onDelete, confirmMsg }: { key?: string, name: string, deletedAt?: string, onRestore: () => void, onDelete: () => void, confirmMsg: string }) => (
+    <tr className="hover:bg-slate-50">
+      <td className="px-6 py-4 font-medium text-slate-900">{name}</td>
+      <td className="px-6 py-4 text-slate-500">
+        {deletedAt ? format(parseISO(deletedAt), 'MMM d, yyyy h:mm a') : '-'}
+      </td>
+      <td className="px-6 py-4 text-right">
+        <div className="flex justify-end gap-2">
+          <button onClick={onRestore} className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1">
+            <RotateCcw className="w-3 h-3" /> Restore
+          </button>
+          <button
+            onClick={() => { if (confirm(confirmMsg)) onDelete(); }}
+            className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+          >
+            Delete Forever
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200 bg-slate-50">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
         <h2 className="font-semibold text-slate-900 flex items-center gap-2">
           <Trash2 className="w-5 h-5 text-slate-500" />
           Recently Deleted
         </h2>
+        <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+          <button onClick={() => setTab('transactions')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'transactions' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+            Transactions {transactions.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{transactions.length}</span>}
+          </button>
+          <button onClick={() => setTab('leads')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'leads' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+            Leads {leads.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{leads.length}</span>}
+          </button>
+        </div>
       </div>
-      
+
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
             <tr>
-              <th className="px-6 py-3">Deal Name</th>
+              <th className="px-6 py-3">{tab === 'transactions' ? 'Deal Name' : 'Project Name'}</th>
               <th className="px-6 py-3">Deleted At</th>
               <th className="px-6 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {transactions.map((deal) => (
-              <tr key={deal.id} className="hover:bg-slate-50">
-                <td className="px-6 py-4 font-medium text-slate-900">{deal.dealName}</td>
-                <td className="px-6 py-4 text-slate-500">
-                  {deal.deletedAt ? format(parseISO(deal.deletedAt), 'MMM d, yyyy h:mm a') : '-'}
-                </td>
-                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                  <button 
-                    onClick={() => onRestore(deal.id)}
-                    className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-                  >
-                    Restore
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (confirm('Are you sure you want to permanently delete this transaction? This cannot be undone.')) {
-                        onPermanentDelete(deal.id);
-                      }
-                    }}
-                    className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-                  >
-                    Delete Forever
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {transactions.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-6 py-12 text-center text-slate-500">
-                  No recently deleted transactions.
-                </td>
-              </tr>
+            {tab === 'transactions' ? (
+              transactions.length === 0 ? (
+                <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-500">No recently deleted transactions.</td></tr>
+              ) : transactions.map(deal => (
+                <DeleteRow
+                  key={deal.id}
+                  name={deal.dealName}
+                  deletedAt={deal.deletedAt}
+                  onRestore={() => onRestore(deal.id)}
+                  onDelete={() => onPermanentDelete(deal.id)}
+                  confirmMsg="Permanently delete this transaction? This cannot be undone."
+                />
+              ))
+            ) : (
+              leads.length === 0 ? (
+                <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-500">No recently deleted leads.</td></tr>
+              ) : leads.map(lead => (
+                <DeleteRow
+                  key={lead.id}
+                  name={lead.projectName}
+                  deletedAt={lead.deletedAt}
+                  onRestore={() => onRestoreLead(lead.id)}
+                  onDelete={() => onPermanentDeleteLead(lead.id)}
+                  confirmMsg="Permanently delete this lead? This cannot be undone."
+                />
+              ))
             )}
           </tbody>
         </table>
@@ -5250,6 +5282,7 @@ export default function App() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
+  const [darkMode, setDarkMode] = useState(false);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -5309,6 +5342,7 @@ export default function App() {
   const activeTransactions = useMemo(() => transactions.filter(t => !t.isDeleted), [transactions]);
   const deletedTransactions = useMemo(() => transactions.filter(t => t.isDeleted), [transactions]);
   const activeLeads = useMemo(() => leads.filter(l => !l.isDeleted), [leads]);
+  const deletedLeads = useMemo(() => leads.filter(l => l.isDeleted), [leads]);
 
   const handleSelectDeal = (id: string) => {
     setSelectedDealId(id);
@@ -5400,6 +5434,33 @@ export default function App() {
     });
   };
 
+  const handleRestoreLead = (id: string) => {
+    setLeads(prev => prev.map(l =>
+      l.id === id ? { ...l, isDeleted: false, deletedAt: undefined } : l
+    ));
+  };
+
+  const handlePermanentDeleteLead = (id: string) => {
+    setDeleteConfirmation({
+      isOpen: true,
+      type: 'permanent',
+      ids: [id],
+      target: 'lead'
+    });
+  };
+
+  const handleAddReminder = (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => {
+    if (targetType === 'transaction') {
+      setTransactions(prev => prev.map(t =>
+        t.id === targetId ? { ...t, reminders: [...(t.reminders || []), reminder] } : t
+      ));
+    } else {
+      setLeads(prev => prev.map(l =>
+        l.id === targetId ? { ...l, reminders: [...(l.reminders || []), reminder] } : l
+      ));
+    }
+  };
+
   const executeDelete = () => {
     const { type, ids, target } = deleteConfirmation;
     
@@ -5419,15 +5480,17 @@ export default function App() {
         }
         }
     } else {
-        // Lead deletion (currently permanent as we don't have soft delete view for leads yet, or maybe we should soft delete?)
-        // Let's soft delete to be safe, but we don't have a restore view for leads yet.
-        // For now, let's just permanently delete leads to keep it simple as requested, or soft delete but filter them out.
-        // The user didn't ask for restore leads, so let's just filter them out.
-        setLeads(prev => prev.filter(l => !ids.includes(l.id)));
-        
-        if (selectedLeadId && ids.includes(selectedLeadId)) {
+        if (type === 'permanent') {
+          setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+        } else {
+          // Soft delete leads
+          setLeads(prev => prev.map(l =>
+            ids.includes(l.id) ? { ...l, isDeleted: true, deletedAt: new Date().toISOString() } : l
+          ));
+          if (selectedLeadId && ids.includes(selectedLeadId)) {
             setSelectedLeadId(null);
             setCurrentView('leads');
+          }
         }
     }
     
@@ -5453,8 +5516,8 @@ export default function App() {
       className={cn(
         "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm",
         currentView === view && !selectedDealId && !selectedLeadId
-          ? "bg-indigo-50 text-indigo-700" 
-          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+          ? "bg-indigo-50 text-indigo-700"
+          : darkMode ? "text-slate-300 hover:bg-slate-700 hover:text-slate-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
         isSidebarCollapsed && "justify-center px-2"
       )}
       title={isSidebarCollapsed ? label : undefined}
@@ -5465,9 +5528,9 @@ export default function App() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex">
+    <div className={cn("min-h-screen font-sans flex transition-colors duration-300", darkMode ? "bg-slate-900 text-slate-100 dark" : "bg-slate-50 text-slate-900")}>
       {/* Mobile Header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 z-50 flex items-center justify-between px-4">
+      <div className={cn("md:hidden fixed top-0 left-0 right-0 h-16 border-b z-50 flex items-center justify-between px-4", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
         <div className="flex items-center gap-2 font-bold text-slate-900">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
             <TrendingUp className="w-5 h-5" />
@@ -5481,14 +5544,13 @@ export default function App() {
 
       {/* Sidebar Navigation */}
       <aside className={cn(
-        "fixed md:sticky top-0 left-0 z-40 h-screen bg-white border-r border-slate-200 transition-all duration-300 ease-in-out flex flex-col shrink-0",
-        // Mobile behavior: fixed, transform based on state
+        "fixed md:sticky top-0 left-0 z-40 h-screen border-r transition-all duration-300 ease-in-out flex flex-col shrink-0",
+        darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200",
         "transform md:transform-none",
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-        // Width behavior
         isSidebarCollapsed ? "w-20" : "w-64"
       )}>
-        <div className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
+        <div className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl", darkMode ? "text-slate-100" : "text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm shadow-indigo-200 shrink-0">
             <TrendingUp className="w-5 h-5" />
           </div>
@@ -5539,10 +5601,22 @@ export default function App() {
             )}
           </div>
           
+          {/* Dark Mode Toggle */}
+          <button
+            onClick={() => setDarkMode(d => !d)}
+            className="w-full mt-2 p-2 flex items-center justify-center gap-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-colors"
+            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {darkMode
+              ? <Sun className="w-4 h-4" />
+              : <Moon className="w-4 h-4" />}
+            {!isSidebarCollapsed && <span className="text-xs font-medium">{darkMode ? 'Light Mode' : 'Dark Mode'}</span>}
+          </button>
+
           {/* Collapse Toggle (Desktop Only) */}
-          <button 
+          <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="hidden md:flex w-full mt-2 p-2 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-colors"
+            className="hidden md:flex w-full mt-1 p-2 items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-colors"
           >
             {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <div className="flex items-center gap-2 text-xs font-medium"><ChevronRight className="w-4 h-4 rotate-180" /> Collapse Sidebar</div>}
           </button>
@@ -5558,11 +5632,13 @@ export default function App() {
                 <h1 className="text-2xl font-bold text-slate-900">Executive Dashboard</h1>
                 <p className="text-slate-500">Welcome back. Here's your pipeline overview.</p>
               </div>
-              <DashboardView 
-                transactions={activeTransactions} 
+              <DashboardView
+                transactions={activeTransactions}
                 leads={leads}
-                onSelectDeal={handleSelectDeal} 
+                onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
+                onAddReminder={handleAddReminder}
+                darkMode={darkMode}
               />
             </div>
           )}
@@ -5573,11 +5649,12 @@ export default function App() {
                 <h1 className="text-2xl font-bold text-slate-900">Pipeline Manager</h1>
                 <p className="text-slate-500">Manage your active and closed transactions.</p>
               </div>
-              <PipelineView 
-                transactions={activeTransactions} 
-                onSelectDeal={handleSelectDeal} 
+              <PipelineView
+                transactions={activeTransactions}
+                onSelectDeal={handleSelectDeal}
                 onDeleteDeal={handleDeleteTransaction}
                 onBatchDelete={handleBatchDelete}
+                onUpdateTransaction={handleUpdateTransaction}
               />
             </div>
           )}
@@ -5610,12 +5687,15 @@ export default function App() {
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
                 <h1 className="text-2xl font-bold text-slate-900">Recently Deleted</h1>
-                <p className="text-slate-500">Restore or permanently delete transactions.</p>
+                <p className="text-slate-500">Restore or permanently delete items.</p>
               </div>
-              <RecentlyDeletedView 
+              <RecentlyDeletedView
                 transactions={deletedTransactions}
+                leads={deletedLeads}
                 onRestore={handleRestoreTransaction}
                 onPermanentDelete={handlePermanentDeleteTransaction}
+                onRestoreLead={handleRestoreLead}
+                onPermanentDeleteLead={handlePermanentDeleteLead}
               />
             </div>
           )}
