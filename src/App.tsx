@@ -2634,6 +2634,9 @@ const LeadDetailView = ({
   const [isAddingReminder, setIsAddingReminder] = useState(false);
   const [newReminder, setNewReminder] = useState<LeadReminder>({ id: '', date: '', description: '', completed: false });
 
+  // Mobile tab navigation (info | activity | details)
+  const [mobileLeadTab, setMobileLeadTab] = useState<'info' | 'activity' | 'details'>('activity');
+
   useEffect(() => {
     setFormData(lead);
   }, [lead]);
@@ -2776,10 +2779,27 @@ const LeadDetailView = ({
         </div>
       </div>
 
+      {/* Mobile Tab Bar */}
+      <div className="flex border-b border-slate-200 bg-white lg:hidden shrink-0">
+        {([['info', 'Info & Contacts'], ['activity', 'Activity'], ['details', 'Reminders']] as const).map(([tab, label]) => (
+          <button
+            key={tab}
+            onClick={() => setMobileLeadTab(tab)}
+            className={cn(
+              "flex-1 py-3 text-sm font-medium transition-colors relative",
+              mobileLeadTab === tab ? "text-indigo-600" : "text-slate-500 hover:text-slate-700"
+            )}
+          >
+            {label}
+            {mobileLeadTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-hidden">
         <div className="h-full grid grid-cols-1 lg:grid-cols-3 divide-x divide-slate-200">
             {/* Left Column: Info & Contacts */}
-            <div className="lg:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
+            <div className={cn("lg:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'info' ? "hidden lg:block" : "")}>
                 <div className="space-y-4">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                         <Users className="w-4 h-4" /> Lead Information
@@ -2897,7 +2917,7 @@ const LeadDetailView = ({
             </div>
 
             {/* Middle Column: Activity Timeline */}
-            <div className="lg:col-span-1 overflow-y-auto p-6 bg-white flex flex-col">
+            <div className={cn("lg:col-span-1 overflow-y-auto p-6 bg-white flex flex-col", mobileLeadTab !== 'activity' ? "hidden lg:flex" : "")}>
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <History className="w-4 h-4" /> Activity Timeline
                 </h3>
@@ -2978,7 +2998,7 @@ const LeadDetailView = ({
             </div>
 
             {/* Right Column: Reminders & Details */}
-            <div className="lg:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
+            <div className={cn("lg:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'details' ? "hidden lg:block" : "")}>
                 {/* Reminders Widget */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
@@ -3828,59 +3848,66 @@ const TransactionDetailView = ({
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header Card */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <button onClick={handleClose} className="text-slate-400 hover:text-slate-600 transition-colors">
-              <ChevronRight className="w-5 h-5 rotate-180" />
-            </button>
-            <h1 className="text-2xl font-bold text-slate-900">{formData.dealName}</h1>
-            <StatusBadge stage={formData.stage} />
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 mb-1">
+              <button onClick={handleClose} className="text-slate-400 hover:text-slate-600 transition-colors shrink-0">
+                <ChevronRight className="w-5 h-5 rotate-180" />
+              </button>
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={formData.dealName}
+                  onChange={e => handleInputChange('dealName', e.target.value)}
+                  className="text-2xl font-bold text-slate-900 border-b-2 border-indigo-400 bg-transparent focus:outline-none w-full"
+                />
+              ) : (
+                <h1 className="text-2xl font-bold text-slate-900 truncate">{formData.dealName}</h1>
+              )}
+              <StatusBadge stage={formData.stage} />
+            </div>
+            {isEditing ? (
+              <input
+                type="text"
+                value={formData.address}
+                onChange={e => handleInputChange('address', e.target.value)}
+                className="text-slate-500 text-sm border-b border-slate-300 bg-transparent focus:outline-none w-full ml-8"
+                placeholder="Address"
+              />
+            ) : (
+              <p className="text-slate-500 flex items-center gap-2 text-sm ml-8">
+                <MapPin className="w-4 h-4 shrink-0" /> {formData.address}
+              </p>
+            )}
+            {/* Property details summary row */}
+            {!isEditing && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 ml-8 text-xs text-slate-500">
+                {formData.acreage > 0 && <span className="flex items-center gap-1"><span className="font-medium text-slate-700">{formData.acreage} AC</span></span>}
+                {formData.zoning && <span className="flex items-center gap-1">Zoning: <span className="font-medium text-slate-700">{formData.zoning}</span></span>}
+                {formData.apn && <span className="flex items-center gap-1">APN: <span className="font-medium text-slate-700">{formData.apn}</span></span>}
+                {formData.county && <span className="flex items-center gap-1">County: <span className="font-medium text-slate-700">{formData.county}</span></span>}
+              </div>
+            )}
           </div>
-          <p className="text-slate-500 flex items-center gap-2 text-sm">
-            <MapPin className="w-4 h-4" /> {formData.address}
-          </p>
-        </div>
-        <div className="flex gap-3">
-          {isEditing ? (
-            <>
-              <button 
-                onClick={() => setIsEditing(false)}
-                className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleSave}
-                className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 shadow-sm flex items-center gap-2 transition-colors"
-              >
-                <Save className="w-4 h-4" /> Save Changes
-              </button>
-            </>
-          ) : (
-            <>
-              <button 
-                onClick={() => {
-                    setActiveTab('overview');
-                    setTimeout(() => {
-                        const assistantElement = document.getElementById('ai-assistant-widget');
-                        if (assistantElement) {
-                            assistantElement.scrollIntoView({ behavior: 'smooth' });
-                        }
-                    }, 100);
-                }}
-                className="px-4 py-2 bg-indigo-50 text-indigo-600 font-medium rounded-lg hover:bg-indigo-100 shadow-sm flex items-center gap-2 transition-colors"
-              >
-                <Sparkles className="w-4 h-4" /> Ask AI
-              </button>
-              <button 
-                onClick={() => setIsEditing(true)}
-                className="px-4 py-2 bg-white border border-slate-200 text-slate-700 font-medium rounded-lg hover:bg-slate-50 shadow-sm flex items-center gap-2 transition-colors"
-              >
-                <Edit3 className="w-4 h-4" /> Edit Details
-              </button>
-            </>
-          )}
+          <div className="flex gap-3 shrink-0">
+            {isEditing ? (
+              <>
+                <button
+                  onClick={() => setIsEditing(false)}
+                  className="px-4 py-2 text-slate-600 font-medium hover:bg-slate-50 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 shadow-sm flex items-center gap-2 transition-colors"
+                >
+                  <Save className="w-4 h-4" /> Save Changes
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -3905,14 +3932,15 @@ const TransactionDetailView = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content Column */}
-        <div className={cn("space-y-6", "lg:col-span-2")}>
+        <div className={cn("space-y-6 order-2 lg:order-1", "lg:col-span-2")}>
           
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               {/* Property Details */}
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-slate-400" /> Property Details
+                <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2"><Building2 className="w-4 h-4 text-slate-400" /> Property Details</span>
+                  {!isEditing && <button onClick={() => setIsEditing(true)} className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors" title="Edit"><Edit3 className="w-3.5 h-3.5" /></button>}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
@@ -4387,16 +4415,19 @@ const TransactionDetailView = ({
         </div>
 
         {/* Sticky Sidebar - Financials (Always Visible on Desktop) */}
-        <div className="lg:col-span-1">
+        <div className="lg:col-span-1 order-1 lg:order-2">
           <div className="sticky top-6 space-y-6">
             <div className={cn(
               "rounded-xl border shadow-sm overflow-hidden transition-colors duration-300",
               isEditing ? "bg-slate-900 border-slate-800 text-white ring-4 ring-indigo-500/20" : "bg-white border-slate-200"
             )}>
               <div className="p-6 border-b border-white/10">
-                <h3 className={cn("text-sm font-semibold uppercase tracking-wider mb-1", isEditing ? "text-slate-400" : "text-slate-500")}>
-                  Financial Breakdown
-                </h3>
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className={cn("text-sm font-semibold uppercase tracking-wider", isEditing ? "text-slate-400" : "text-slate-500")}>
+                    Financial Breakdown
+                  </h3>
+                  {!isEditing && <button onClick={() => setIsEditing(true)} className="p-1 text-slate-400 hover:text-indigo-400 rounded transition-colors" title="Edit"><Edit3 className="w-3.5 h-3.5" /></button>}
+                </div>
                 {isEditing ? (
                   <div className="mt-4">
                     <label className="text-xs text-slate-400 block mb-1">Sale Price</label>
