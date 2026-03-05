@@ -2032,42 +2032,97 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddR
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Column */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Calendar */}
+
+          {/* Closing in [Month] — synced with calendar below */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wider flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-slate-500" />
+                Closing in
+                <div className="flex items-center gap-1 ml-1">
+                  <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-0.5 hover:bg-slate-100 rounded-full transition-colors">
+                    <ChevronRight className="w-3.5 h-3.5 rotate-180 text-slate-500" />
+                  </button>
+                  <span className="font-bold text-indigo-600 w-24 text-center">{format(currentDate, 'MMMM yyyy')}</span>
+                  <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-0.5 hover:bg-slate-100 rounded-full transition-colors">
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+                </div>
+              </h3>
+              <span className="text-[10px] text-slate-400 font-medium">{metrics.monthlyDeals.length} {metrics.monthlyDeals.length === 1 ? 'Deal' : 'Deals'}</span>
+            </div>
+            {metrics.monthlyDeals.length === 0 ? (
+              <div className="flex items-center justify-center text-slate-400 text-sm py-6 gap-2">
+                <CalendarIcon className="w-5 h-5 opacity-30" />
+                <span className="italic">No deals closing in {format(currentDate, 'MMMM')}.</span>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {metrics.monthlyDeals.map(deal => {
+                  const gross = deal.price * (deal.grossCommissionPercent / 100);
+                  const percentOfTotal = metrics.monthlyGross > 0 ? (gross / metrics.monthlyGross) * 100 : 0;
+                  return (
+                    <div key={deal.id} className="group cursor-pointer" onClick={() => onSelectDeal(deal.id)}>
+                      <div className="flex justify-between text-xs font-bold mb-1.5">
+                        <span className="text-slate-700 group-hover:text-indigo-600 transition-colors truncate pr-2">{deal.dealName}</span>
+                        <span className="text-slate-900 shrink-0">{formatCurrency(gross)}</span>
+                      </div>
+                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-emerald-500 h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${percentOfTotal}%` }} />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-slate-400 font-bold mt-1 uppercase tracking-tighter">
+                        <span>COE {format(parseISO(deal.coeDate), 'MMM d')}</span>
+                        <span>{Math.round(percentOfTotal)}% of month</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="pt-3 border-t border-slate-100 flex justify-between items-end">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Total Projected</p>
+                    <p className="text-xl font-bold text-slate-900">{formatCurrency(metrics.monthlyGross)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-0.5">Trey's Take</p>
+                    <p className="text-lg font-bold text-emerald-600">{formatCurrency(metrics.monthlyTrey)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Deal Calendar — month nav is shared with widget above */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
                 <CalendarIcon className="w-4 h-4 text-slate-500" /> Deal Calendar
               </h2>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1">
-                    <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                        <ChevronRight className="w-4 h-4 rotate-180" />
-                    </button>
-                    <span className="text-xs font-bold w-28 text-center uppercase tracking-tighter">{format(currentDate, 'MMMM yyyy')}</span>
-                    <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                        <ChevronRight className="w-4 h-4" />
-                    </button>
-                </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+                  <ChevronRight className="w-4 h-4 rotate-180" />
+                </button>
+                <span className="text-xs font-bold w-28 text-center uppercase tracking-tighter">{format(currentDate, 'MMMM yyyy')}</span>
+                <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
-            
             <div className="p-4 grid grid-cols-7 gap-px bg-slate-100">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                 <div key={day} className="bg-slate-50 p-2 text-[10px] font-bold text-slate-400 text-center uppercase tracking-widest">
                   {day}
                 </div>
               ))}
-              {eachDayOfInterval({ 
-                start: startOfMonth(currentDate), 
-                end: endOfMonth(currentDate) 
-              }).map((day, i) => {
+              {eachDayOfInterval({
+                start: startOfMonth(currentDate),
+                end: endOfMonth(currentDate)
+              }).map((day) => {
                 const events = getEventsForDay(day);
                 const isToday = isSameDay(day, new Date());
                 const isCurrentMonth = isSameMonth(day, currentDate);
-                
                 return (
                   <div key={day.toISOString()} className={cn(
-                    "bg-white min-h-[110px] p-2 flex flex-col gap-1 relative group transition-colors border border-slate-50",
+                    "bg-white min-h-[110px] p-2 flex flex-col gap-1 transition-colors border border-slate-50",
                     !isCurrentMonth && "bg-slate-50/50 opacity-40"
                   )}>
                     <span className={cn(
@@ -2076,24 +2131,23 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddR
                     )}>
                       {format(day, 'd')}
                     </span>
-                    
                     <div className="space-y-1 overflow-y-auto max-h-[80px] scrollbar-hide">
-                        {events.map((event, idx) => (
-                            <button 
-                                key={`${event.id}-${idx}`}
-                                onClick={() => event.isLead ? onSelectLead(event.id) : onSelectDeal(event.id)}
-                                className={cn(
-                                    "text-[9px] p-1 rounded border truncate w-full text-left transition-all hover:scale-[1.02] font-medium",
-                                    event.type === 'critical' 
-                                        ? (event.label === 'COE' ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-amber-50 text-amber-700 border-amber-100")
-                                        : event.type === 'reminder' 
-                                            ? "bg-purple-50 text-purple-700 border-purple-100"
-                                            : "bg-indigo-50 text-indigo-700 border-indigo-100"
-                                )}
-                            >
-                                <span className="font-bold opacity-70">{event.label}:</span> {event.dealName}
-                            </button>
-                        ))}
+                      {events.map((event, idx) => (
+                        <button
+                          key={`${event.id}-${idx}`}
+                          onClick={() => event.isLead ? onSelectLead(event.id) : onSelectDeal(event.id)}
+                          className={cn(
+                            "text-[9px] p-1 rounded border truncate w-full text-left transition-all hover:scale-[1.02] font-medium",
+                            event.type === 'critical'
+                              ? (event.label === 'COE' ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-amber-50 text-amber-700 border-amber-100")
+                              : event.type === 'reminder'
+                                ? "bg-purple-50 text-purple-700 border-purple-100"
+                                : "bg-indigo-50 text-indigo-700 border-indigo-100"
+                          )}
+                        >
+                          <span className="font-bold opacity-70">{event.label}:</span> {event.dealName}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 );
@@ -2123,211 +2177,57 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddR
             </div>
           </div>
 
-          {/* Charts Row: Pipeline Pie + Commission Bar */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Pipeline Value by Stage */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-200 bg-slate-50">
-                <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
-                  Pipeline by Stage
-                </h2>
-              </div>
-              <div className="p-4" style={{ height: 240 }}>
-                {pipelineByStage.length === 0 ? (
-                  <div className="flex items-center justify-center h-full text-slate-400 italic text-sm">No active deals.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
-                      <Pie data={pipelineByStage} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false} fontSize={10}>
-                        {pipelineByStage.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={STAGE_COLORS[entry.name] || '#6366f1'} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip formatter={(value: number) => formatCurrency(value)} />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-
-            {/* Commission Breakdown by Deal */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-200 bg-slate-50">
-                <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
-                  Commission by Deal
-                </h2>
-              </div>
-              <div className="p-4" style={{ height: 240 }}>
-                {commissionByDeal.length === 0 ? (
-                  <div className="flex items-center justify-center h-full text-slate-400 italic text-sm">No active deals.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={commissionByDeal} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis type="number" tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                      <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10, fill: '#64748b' }} />
-                      <RechartsTooltip formatter={(value: number) => formatCurrency(value)} />
-                      <Bar dataKey="lao" stackId="a" fill="#94a3b8" name="LAO Cut" radius={[0, 0, 0, 0]} />
-                      <Bar dataKey="kirk" stackId="a" fill="#6366f1" name="Kirk" />
-                      <Bar dataKey="trey" stackId="a" fill="#10b981" name="Trey" radius={[0, 4, 4, 0]} />
-                      <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* Recent Activity Feed with Notes Search */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
-                <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider shrink-0">
-                    <History className="w-4 h-4 text-slate-500" /> {notesSearch ? 'Notes Search' : 'Recent Developments'}
-                </h2>
-                <div className="relative w-full max-w-xs">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search all notes..."
-                    value={notesSearch}
-                    onChange={(e) => setNotesSearch(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  />
-                </div>
+              <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider shrink-0">
+                <History className="w-4 h-4 text-slate-500" /> {notesSearch ? 'Notes Search' : 'Recent Developments'}
+              </h2>
+              <div className="relative w-full max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search all notes..."
+                  value={notesSearch}
+                  onChange={(e) => setNotesSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
             </div>
             <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-                {displayedActivity.length === 0 ? (
-                    <div className="p-8 text-center text-slate-400 italic text-sm">{notesSearch ? 'No notes matching your search.' : 'No recent activity logged.'}</div>
-                ) : (
-                    displayedActivity.map((act, i) => (
-                        <div
-                            key={i}
-                            onClick={() => act.isLead ? onSelectLead(act.sourceId) : onSelectDeal(act.sourceId)}
-                            className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group"
-                        >
-                            <div className="flex justify-between items-start mb-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-tight">{act.sourceName}</span>
-                                    <span className="text-[10px] text-slate-400">•</span>
-                                    <span className="text-[10px] text-slate-400 font-medium">{format(parseISO(act.date), 'MMM d, h:mm a')}</span>
-                                </div>
-                                <div className={cn(
-                                    "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tighter",
-                                    act.isLead ? "bg-purple-100 text-purple-700" : "bg-indigo-100 text-indigo-700"
-                                )}>
-                                    {act.isLead ? 'Lead' : 'Deal'}
-                                </div>
-                            </div>
-                            <p className="text-sm text-slate-700 line-clamp-2 group-hover:text-slate-900 transition-colors">{act.content}</p>
-                        </div>
-                    ))
-                )}
+              {displayedActivity.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 italic text-sm">{notesSearch ? 'No notes matching your search.' : 'No recent activity logged.'}</div>
+              ) : (
+                displayedActivity.map((act, i) => (
+                  <div
+                    key={i}
+                    onClick={() => act.isLead ? onSelectLead(act.sourceId) : onSelectDeal(act.sourceId)}
+                    className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-tight">{act.sourceName}</span>
+                        <span className="text-[10px] text-slate-400">•</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{format(parseISO(act.date), 'MMM d, h:mm a')}</span>
+                      </div>
+                      <div className={cn(
+                        "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tighter",
+                        act.isLead ? "bg-purple-100 text-purple-700" : "bg-indigo-100 text-indigo-700"
+                      )}>
+                        {act.isLead ? 'Lead' : 'Deal'}
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-700 line-clamp-2 group-hover:text-slate-900 transition-colors">{act.content}</p>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
 
         {/* Sidebar Column */}
         <div className="flex flex-col gap-6">
-          {/* Action Items Panel */}
-          {actionItems.length > 0 && (
-            <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-6">
-              <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
-                <AlertTriangle className="w-4 h-4 text-red-500" /> Action Items
-                <span className="ml-auto text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">{actionItems.length}</span>
-              </h3>
-              <div className="space-y-2">
-                {actionItems.map((item, i) => (
-                  <div
-                    key={i}
-                    onClick={() => item.isLead ? onSelectLead(item.id) : onSelectDeal(item.id)}
-                    className={cn(
-                      "p-3 rounded-xl border cursor-pointer hover:translate-x-1 transition-all text-xs",
-                      item.type === 'urgent' ? "bg-red-50 border-red-100" : item.type === 'warning' ? "bg-amber-50 border-amber-100" : "bg-blue-50 border-blue-100"
-                    )}
-                  >
-                    <p className={cn("font-bold", item.type === 'urgent' ? "text-red-700" : item.type === 'warning' ? "text-amber-700" : "text-blue-700")}>{item.title}</p>
-                    <p className="text-slate-500 mt-0.5">{item.subtitle}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Lead Conversion Funnel */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider">
-              <Target className="w-4 h-4 text-slate-500" /> Lead Funnel
-            </h3>
-            <div className="space-y-3">
-              {leadFunnel.map((stage, i) => {
-                const maxCount = Math.max(...leadFunnel.map(s => s.count), 1);
-                return (
-                  <div key={stage.name}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-600 font-medium">{stage.name}</span>
-                      <span className="font-bold text-slate-900">{stage.count}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${(stage.count / maxCount) * 100}%`, backgroundColor: stage.color }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Monthly Closing Progress */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col">
-            <h3 className="font-bold text-slate-900 mb-4 text-sm uppercase tracking-wider flex items-center justify-between">
-                <span>Closing in {format(currentDate, 'MMMM')}</span>
-                <span className="text-[10px] text-slate-400">{metrics.monthlyDeals.length} Deals</span>
-            </h3>
-
-          {metrics.monthlyDeals.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-sm py-8">
-              <CalendarIcon className="w-8 h-8 mb-2 opacity-10" />
-              <p className="italic">No deals closing this month.</p>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              {metrics.monthlyDeals.map(deal => {
-                const gross = deal.price * (deal.grossCommissionPercent / 100);
-                const percentOfTotal = metrics.monthlyGross > 0 ? (gross / metrics.monthlyGross) * 100 : 0;
-
-                return (
-                  <div key={deal.id} className="group cursor-pointer" onClick={() => onSelectDeal(deal.id)}>
-                    <div className="flex justify-between text-xs font-bold mb-1.5">
-                      <span className="text-slate-700 group-hover:text-indigo-600 transition-colors truncate pr-2">{deal.dealName}</span>
-                      <span className="text-slate-900 shrink-0">{formatCurrency(gross)}</span>
-                    </div>
-                    <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-emerald-500 h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${percentOfTotal}%` }} />
-                    </div>
-                    <div className="flex justify-between text-[10px] text-slate-400 font-bold mt-1.5 uppercase tracking-tighter">
-                      <span>{format(parseISO(deal.coeDate), 'MMM d')}</span>
-                      <span>{Math.round(percentOfTotal)}% of month</span>
-                    </div>
-                  </div>
-                );
-              })}
-
-              <div className="pt-4 border-t border-slate-100">
-                <div className="flex justify-between items-end">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Projected</p>
-                    <p className="text-xl font-bold text-slate-900 tracking-tight">{formatCurrency(metrics.monthlyGross)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mb-1">Trey's Take</p>
-                    <p className="text-lg font-bold text-emerald-600 tracking-tight">{formatCurrency(metrics.monthlyTrey)}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-          {/* Upcoming Deadlines Widget with Overdue Section */}
+          {/* Deadlines Widget */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
@@ -2394,7 +2294,7 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddR
             </div>
           </div>
         </div>
-    </div>
+      </div>
 
     {/* Quick Add Reminder Modal */}
     {showQuickReminder && (
@@ -2628,7 +2528,7 @@ const LeadsView = ({
                 </th>
                 <th className="px-4 py-3 bg-slate-50">Details</th>
                 <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('lastSpokeDate')}>
-                    <div className="flex items-center gap-1">Last Spoke <ArrowUpDown className="w-3 h-3" /></div>
+                    <div className="flex items-center gap-1">Contact Age <ArrowUpDown className="w-3 h-3" /></div>
                 </th>
                 <th className="px-4 py-3 bg-slate-50">Summary</th>
                 <th className="px-4 py-3 w-10 bg-slate-50"></th>
@@ -2670,8 +2570,14 @@ const LeadsView = ({
                   <td className="px-4 py-3 font-medium text-slate-900">{lead.projectName}</td>
                   <td className="px-4 py-3 text-slate-600">{lead.contactName}</td>
                   <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate" title={lead.details}>{lead.details}</td>
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {lead.lastSpokeDate ? format(parseISO(lead.lastSpokeDate), 'MMM d, yyyy') : '-'}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {(() => {
+                      if (!lead.lastSpokeDate) return <span className="text-slate-400 text-xs">Never</span>;
+                      const days = Math.floor((new Date().getTime() - parseISO(lead.lastSpokeDate).getTime()) / 86400000);
+                      const label = days === 0 ? 'Today' : days === 1 ? '1d ago' : `${days}d ago`;
+                      const color = days <= 7 ? 'bg-emerald-50 text-emerald-700' : days <= 30 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
+                      return <span className={cn("px-2 py-1 rounded-full text-xs font-semibold", color)}>{label}</span>;
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-slate-500 text-xs max-w-[250px] truncate" title={lead.summary}>{lead.summary}</td>
                   <td className="px-4 py-3">
@@ -3268,6 +3174,10 @@ const PipelineView = ({
             aValue = a.buyer?.name || '';
             bValue = b.buyer?.name || '';
         }
+        if (sortConfig.key === 'seller') {
+            aValue = a.seller?.name || '';
+            bValue = b.seller?.name || '';
+        }
 
         // Handle dates
         if (sortConfig.key === 'feasibilityDate' || sortConfig.key === 'coeDate') {
@@ -3462,28 +3372,25 @@ const PipelineView = ({
               <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('buyer')}>
                   <div className="flex items-center">Buyer <SortIcon columnKey="buyer" /></div>
               </th>
-              <th className="px-4 py-3 cursor-pointer hover:text-slate-700 text-right" onClick={() => handleSort('price')}>
+              <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('seller')}>
+                  <div className="flex items-center">Seller <SortIcon columnKey="seller" /></div>
+              </th>
+              <th className="px-4 py-3 cursor-pointer hover:text-slate-700 text-right bg-slate-50" onClick={() => handleSort('price')}>
                   <div className="flex items-center justify-end">Price <SortIcon columnKey="price" /></div>
               </th>
-              <th className="px-4 py-3 text-right">Base %</th>
-              <th className="px-4 py-3 text-right">LAO %</th>
-              <th className="px-4 py-3 text-right">Trey %</th>
-              <th className="px-4 py-3 text-right">Kirk %</th>
-              <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('feasibilityDate')}>
-                  <div className="flex items-center">Feas Date <SortIcon columnKey="feasibilityDate" /></div>
-              </th>
-              <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('coeDate')}>
+              <th className="px-4 py-3 text-right bg-slate-50">Gross Comm</th>
+              <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('coeDate')}>
                   <div className="flex items-center">COE Date <SortIcon columnKey="coeDate" /></div>
               </th>
-              <th className="px-4 py-3">PID</th>
-              <th className="px-4 py-3 w-10"></th>
+              <th className="px-4 py-3 w-10 bg-slate-50"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filteredData.map((deal) => {
+              const grossComm = deal.price * (deal.grossCommissionPercent / 100);
               return (
-                <tr 
-                  key={deal.id} 
+                <tr
+                  key={deal.id}
                   onClick={() => onSelectDeal(deal.id)}
                   className={cn(
                     "hover:bg-slate-50 cursor-pointer transition-colors group",
@@ -3491,8 +3398,8 @@ const PipelineView = ({
                   )}
                 >
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={selectedIds.has(deal.id)}
                       onChange={() => toggleSelection(deal.id)}
                       className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
@@ -3500,41 +3407,48 @@ const PipelineView = ({
                   </td>
                   <td className="px-4 py-3 text-slate-500">{deal.projectYear || '-'}</td>
                   <td className="px-4 py-3"><StatusBadge stage={deal.stage} /></td>
-                  <td className="px-4 py-3 font-medium text-slate-900 group-hover:text-indigo-600 max-w-[150px] truncate" title={deal.dealName}>
+                  <td className="px-4 py-3 font-medium text-slate-900 group-hover:text-indigo-600 max-w-[160px] truncate" title={deal.dealName}>
                     <div className="flex items-center gap-2">
                       <DealHealthBadge health={getDealHealth(deal)} />
                       {deal.dealName}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600 max-w-[120px] truncate" title={deal.buyer.name}>{deal.buyer.name || '-'}</td>
-                  <td className="px-4 py-3 text-right font-mono text-slate-600">{formatCurrency(deal.price)}</td>
-                  <td className="px-4 py-3 text-right text-slate-500">{deal.grossCommissionPercent}%</td>
-                  <td className="px-4 py-3 text-right text-slate-500">{deal.laoCutPercent}%</td>
-                  <td className="px-4 py-3 text-right text-slate-500">{deal.treySplitPercent}%</td>
-                  <td className="px-4 py-3 text-right text-slate-500">{deal.kirkSplitPercent}%</td>
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {deal.feasibilityDate ? format(parseISO(deal.feasibilityDate), 'MM/dd/yy') : '-'}
-                  </td>
+                  <td className="px-4 py-3 text-slate-600 max-w-[110px] truncate" title={deal.buyer.name}>{deal.buyer.name || '-'}</td>
+                  <td className="px-4 py-3 text-slate-600 max-w-[110px] truncate" title={deal.seller.name}>{deal.seller.name || '-'}</td>
+                  <td className="px-4 py-3 text-right font-mono text-slate-700">{formatCurrency(deal.price)}</td>
+                  <td className="px-4 py-3 text-right font-mono font-semibold text-emerald-700">{formatCurrency(grossComm)}</td>
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                     {deal.coeDate ? format(parseISO(deal.coeDate), 'MM/dd/yy') : '-'}
                   </td>
-                  <td className="px-4 py-3 text-slate-500 text-[10px] font-mono">{deal.pid || '-'}</td>
                   <td className="px-4 py-3">
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteDeal(deal.id);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
-                        title="Delete Transaction"
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }}
+                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                      title="Delete Transaction"
                     >
-                        <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>
               );
             })}
           </tbody>
+          {filteredData.length > 0 && (() => {
+            const totalPrice = filteredData.reduce((s, d) => s + d.price, 0);
+            const totalGross = filteredData.reduce((s, d) => s + d.price * (d.grossCommissionPercent / 100), 0);
+            return (
+              <tfoot className="bg-slate-50 border-t-2 border-slate-200 text-xs font-semibold text-slate-700">
+                <tr>
+                  <td colSpan={6} className="px-4 py-3 text-slate-400 uppercase tracking-wider">
+                    {filteredData.length} deal{filteredData.length !== 1 ? 's' : ''}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono">{formatCurrency(totalPrice)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-emerald-700">{formatCurrency(totalGross)}</td>
+                  <td colSpan={2} />
+                </tr>
+              </tfoot>
+            );
+          })()}
         </table>
       </div>
       )}
@@ -3904,13 +3818,20 @@ const TransactionDetailView = ({
     setIsEditing(false);
   };
 
+  const handleClose = () => {
+    if (isEditing) {
+      if (!confirm('You have unsaved changes. Discard them and go back?')) return;
+    }
+    onClose();
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header Card */}
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
+            <button onClick={handleClose} className="text-slate-400 hover:text-slate-600 transition-colors">
               <ChevronRight className="w-5 h-5 rotate-180" />
             </button>
             <h1 className="text-2xl font-bold text-slate-900">{formData.dealName}</h1>
@@ -5321,7 +5242,12 @@ export default function App() {
   }, []);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebarCollapsed') === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('sidebarCollapsed', String(isSidebarCollapsed)); } catch {}
+  }, [isSidebarCollapsed]);
 
   const [isNewDealModalOpen, setIsNewDealModalOpen] = useState(false);
   
