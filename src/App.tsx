@@ -5240,33 +5240,19 @@ export default function App() {
     const loadInitialData = async () => {
       try {
         const [transRes, leadsRes] = await Promise.all([
-          fetch('/transactions.csv'),
-          fetch('/leads.csv')
+          fetch('/api/transactions'),
+          fetch('/api/leads')
         ]);
         if (transRes.ok) {
-          const text = await transRes.text();
-          Papa.parse(text, {
-            header: true,
-            skipEmptyLines: true,
-            complete: (results: any) => {
-              const parsed = processTransactionCSV(results.data);
-              if (parsed.length > 0) setTransactions(parsed);
-            }
-          });
+          const data = await transRes.json();
+          if (data.length > 0) setTransactions(data);
         }
         if (leadsRes.ok) {
-          const text = await leadsRes.text();
-          Papa.parse(text, {
-            header: true,
-            skipEmptyLines: true,
-            complete: (results: any) => {
-              const parsed = processLeadCSV(results.data);
-              if (parsed.length > 0) setLeads(parsed);
-            }
-          });
+          const data = await leadsRes.json();
+          if (data.length > 0) setLeads(data);
         }
       } catch (e) {
-        console.log('Could not load CSV data files:', e);
+        console.log('Could not load data from API:', e);
       }
     };
     loadInitialData();
@@ -5317,6 +5303,7 @@ export default function App() {
 
   const handleUpdateTransaction = (updated: Transaction) => {
     setTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
+    fetch(`/api/transactions/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
   };
 
   const handleCreateTransaction = (newDeal: Transaction) => {
@@ -5324,20 +5311,24 @@ export default function App() {
     setIsNewDealModalOpen(false);
     setSelectedDealId(newDeal.id);
     setCurrentView('detail');
+    fetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newDeal) }).catch(console.error);
   };
 
   const handleImportTransactions = (newTransactions: Transaction[]) => {
     setTransactions(prev => [...prev, ...newTransactions]);
     setCurrentView('pipeline');
+    fetch('/api/transactions/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newTransactions) }).catch(console.error);
   };
 
   const handleUpdateLead = (updated: Lead) => {
     setLeads(prev => prev.map(l => l.id === updated.id ? updated : l));
+    fetch(`/api/leads/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
   };
 
   const handleImportLeads = (newLeads: Lead[]) => {
     setLeads(prev => [...prev, ...newLeads]);
     setCurrentView('leads');
+    fetch('/api/leads/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newLeads) }).catch(console.error);
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -5377,9 +5368,12 @@ export default function App() {
   };
 
   const handleRestoreTransaction = (id: string) => {
-    setTransactions(prev => prev.map(t => 
-      t.id === id ? { ...t, isDeleted: false, deletedAt: undefined } : t
-    ));
+    setTransactions(prev => prev.map(t => {
+      if (t.id !== id) return t;
+      const restored = { ...t, isDeleted: false, deletedAt: undefined };
+      fetch(`/api/transactions/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) }).catch(console.error);
+      return restored;
+    }));
   };
 
   const handlePermanentDeleteTransaction = (id: string) => {
@@ -5392,9 +5386,12 @@ export default function App() {
   };
 
   const handleRestoreLead = (id: string) => {
-    setLeads(prev => prev.map(l =>
-      l.id === id ? { ...l, isDeleted: false, deletedAt: undefined } : l
-    ));
+    setLeads(prev => prev.map(l => {
+      if (l.id !== id) return l;
+      const restored = { ...l, isDeleted: false, deletedAt: undefined };
+      fetch(`/api/leads/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) }).catch(console.error);
+      return restored;
+    }));
   };
 
   const handlePermanentDeleteLead = (id: string) => {
@@ -5408,49 +5405,67 @@ export default function App() {
 
   const handleAddReminder = (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => {
     if (targetType === 'transaction') {
-      setTransactions(prev => prev.map(t =>
-        t.id === targetId ? { ...t, reminders: [...(t.reminders || []), reminder] } : t
-      ));
+      setTransactions(prev => prev.map(t => {
+        if (t.id !== targetId) return t;
+        const updated = { ...t, reminders: [...(t.reminders || []), reminder] };
+        fetch(`/api/transactions/${targetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
+        return updated;
+      }));
     } else {
-      setLeads(prev => prev.map(l =>
-        l.id === targetId ? { ...l, reminders: [...(l.reminders || []), reminder] } : l
-      ));
+      setLeads(prev => prev.map(l => {
+        if (l.id !== targetId) return l;
+        const updated = { ...l, reminders: [...(l.reminders || []), reminder] };
+        fetch(`/api/leads/${targetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
+        return updated;
+      }));
     }
   };
 
   const executeDelete = () => {
     const { type, ids, target } = deleteConfirmation;
-    
+
     if (target === 'transaction') {
         if (type === 'permanent') {
-        setTransactions(prev => prev.filter(t => !ids.includes(t.id)));
+          setTransactions(prev => prev.filter(t => !ids.includes(t.id)));
+          if (ids.length === 1) {
+            fetch(`/api/transactions/${ids[0]}/permanent`, { method: 'DELETE' }).catch(console.error);
+          } else {
+            fetch('/api/transactions/batch-delete-permanent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
+          }
         } else {
-        // Soft delete (single or batch)
-        setTransactions(prev => prev.map(t => 
+          // Soft delete (single or batch)
+          setTransactions(prev => prev.map(t =>
             ids.includes(t.id) ? { ...t, isDeleted: true, deletedAt: new Date().toISOString() } : t
-        ));
-        
-        // If the currently viewed deal is deleted, go back to pipeline
-        if (selectedDealId && ids.includes(selectedDealId)) {
+          ));
+          fetch('/api/transactions/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
+
+          // If the currently viewed deal is deleted, go back to pipeline
+          if (selectedDealId && ids.includes(selectedDealId)) {
             setSelectedDealId(null);
             setCurrentView('pipeline');
-        }
+          }
         }
     } else {
         if (type === 'permanent') {
           setLeads(prev => prev.filter(l => !ids.includes(l.id)));
+          if (ids.length === 1) {
+            fetch(`/api/leads/${ids[0]}/permanent`, { method: 'DELETE' }).catch(console.error);
+          } else {
+            fetch('/api/leads/batch-delete-permanent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
+          }
         } else {
           // Soft delete leads
           setLeads(prev => prev.map(l =>
             ids.includes(l.id) ? { ...l, isDeleted: true, deletedAt: new Date().toISOString() } : l
           ));
+          fetch('/api/leads/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
           if (selectedLeadId && ids.includes(selectedLeadId)) {
             setSelectedLeadId(null);
             setCurrentView('leads');
           }
         }
     }
-    
+
     setDeleteConfirmation(prev => ({ ...prev, isOpen: false }));
   };
 
