@@ -242,23 +242,22 @@ interface Transaction {
 
 function getMissingTransactionFields(t: Transaction): { key: string; label: string }[] {
   const missing: { key: string; label: string }[] = [];
-  if (!t.projectYear) missing.push({ key: 'projectYear', label: 'Year' });
   if (!t.buyer?.name) missing.push({ key: 'buyer.name', label: 'Buyer' });
   if (!t.seller?.name) missing.push({ key: 'seller.name', label: 'Seller' });
-  if (!t.price) missing.push({ key: 'price', label: 'Price' });
-  if (t.grossCommissionPercent === undefined || t.grossCommissionPercent === null) missing.push({ key: 'grossCommissionPercent', label: 'Base %' });
-  if (!t.feasibilityDate) missing.push({ key: 'feasibilityDate', label: 'Feas Date' });
   if (!t.coeDate) missing.push({ key: 'coeDate', label: 'COE Date' });
-  if (!t.pid) missing.push({ key: 'pid', label: 'PID' });
+  if (!t.price) missing.push({ key: 'price', label: 'Price' });
+  if (t.grossCommissionPercent === undefined || t.grossCommissionPercent === null) missing.push({ key: 'grossCommissionPercent', label: 'Gross Comm %' });
+  if (t.laoCutPercent === undefined || t.laoCutPercent === null) missing.push({ key: 'laoCutPercent', label: 'LAO Cut %' });
+  if (t.treySplitPercent === undefined || t.treySplitPercent === null) missing.push({ key: 'treySplitPercent', label: 'Trey Split %' });
+  if (t.kirkSplitPercent === undefined || t.kirkSplitPercent === null) missing.push({ key: 'kirkSplitPercent', label: 'Kirk Split %' });
   return missing;
 }
 
 function getMissingLeadFields(l: Lead): { key: string; label: string }[] {
   const missing: { key: string; label: string }[] = [];
+  if (!l.projectName) missing.push({ key: 'projectName', label: 'Project Name' });
   if (!l.contactName) missing.push({ key: 'contactName', label: 'Contact' });
   if (!l.lastSpokeDate) missing.push({ key: 'lastSpokeDate', label: 'Last Spoke' });
-  if (!l.details) missing.push({ key: 'details', label: 'Details' });
-  if (!l.summary) missing.push({ key: 'summary', label: 'Summary' });
   return missing;
 }
 
@@ -2866,60 +2865,149 @@ const QuickEditTransactionDrawer = ({
   onClose: () => void;
 }) => {
   const isBulk = transactions.length > 1;
+  const t0 = transactions[0];
 
-  // Collect which fields are missing across the selection
-  const allMissingKeys = useMemo(() => {
-    const keys = new Set<string>();
-    transactions.forEach(t => getMissingTransactionFields(t).forEach(f => keys.add(f.key)));
-    return Array.from(keys);
-  }, [transactions]);
+  // Pre-populate from t0 for single edit; empty strings for bulk
+  const [buyerName, setBuyerName] = useState(isBulk ? '' : (t0.buyer?.name || ''));
+  const [sellerName, setSellerName] = useState(isBulk ? '' : (t0.seller?.name || ''));
+  const [price, setPrice] = useState(isBulk ? '' : (t0.price ? String(t0.price) : ''));
+  const [coeDate, setCoeDate] = useState(isBulk ? '' : (t0.coeDate || ''));
+  const [grossCommPct, setGrossCommPct] = useState(isBulk ? '' : (t0.grossCommissionPercent != null ? String(t0.grossCommissionPercent) : ''));
+  const [laoCutPct, setLaoCutPct] = useState(isBulk ? '' : (t0.laoCutPercent != null ? String(t0.laoCutPercent) : ''));
+  const [treySplit, setTreySplit] = useState<number>(isBulk ? 60 : (t0.treySplitPercent ?? 60));
+  const [kirkSplit, setKirkSplit] = useState<number>(isBulk ? 40 : (t0.kirkSplitPercent ?? 40));
+  const [splitsModified, setSplitsModified] = useState(false);
 
-  const fieldLabels: Record<string, string> = {
-    feasibilityDate: 'Feasibility Date',
-    coeDate: 'COE Date',
-    pid: 'PID',
-    price: 'Price',
-    grossCommissionPercent: 'Base Commission %',
-    'buyer.name': 'Buyer Name',
-    'seller.name': 'Seller Name',
-    projectYear: 'Year',
+  const [overrideWarnings, setOverrideWarnings] = useState<{ label: string; deals: string[] }[]>([]);
+  const [showOverrideConfirm, setShowOverrideConfirm] = useState(false);
+
+  const missingKeys = useMemo(
+    () => new Set(getMissingTransactionFields(t0).map(f => f.key)),
+    [t0]
+  );
+
+  const handleTreyChange = (val: number) => {
+    setSplitsModified(true);
+    setTreySplit(val);
+    setKirkSplit(Number((100 - val).toFixed(2)));
+  };
+  const handleKirkChange = (val: number) => {
+    setSplitsModified(true);
+    setKirkSplit(val);
+    setTreySplit(Number((100 - val).toFixed(2)));
   };
 
-  const [values, setValues] = useState<Record<string, string>>({});
+  // For bulk: detect fields that would override existing values
+  const detectOverrides = () => {
+    const fieldChecks: { label: string; hasValue: (t: Transaction) => boolean; newValFilled: boolean }[] = [
+      { label: 'Buyer', hasValue: t => !!(t.buyer?.name), newValFilled: !!buyerName },
+      { label: 'Seller', hasValue: t => !!(t.seller?.name), newValFilled: !!sellerName },
+      { label: 'Price', hasValue: t => !!(t.price), newValFilled: !!price },
+      { label: 'COE Date', hasValue: t => !!(t.coeDate), newValFilled: !!coeDate },
+      { label: 'Gross Commission %', hasValue: t => t.grossCommissionPercent != null, newValFilled: !!grossCommPct },
+      { label: 'LAO Cut %', hasValue: t => t.laoCutPercent != null, newValFilled: !!laoCutPct },
+      { label: 'Trey / Kirk Split', hasValue: t => t.treySplitPercent != null, newValFilled: splitsModified },
+    ];
+    return fieldChecks
+      .filter(fc => fc.newValFilled)
+      .map(fc => ({
+        label: fc.label,
+        deals: transactions.filter(t => fc.hasValue(t)).map(t => t.dealName),
+      }))
+      .filter(w => w.deals.length > 0);
+  };
 
-  const handleSave = () => {
+  const handleSaveClick = () => {
+    if (isBulk) {
+      const warnings = detectOverrides();
+      if (warnings.length > 0) {
+        setOverrideWarnings(warnings);
+        setShowOverrideConfirm(true);
+        return;
+      }
+    }
+    applySave();
+  };
+
+  const applySave = () => {
     const updated = transactions.map(t => {
       let next = { ...t };
-      Object.entries(values).forEach(([key, val]: [string, string]) => {
-        if (!val) return;
-        if (key === 'buyer.name') next = { ...next, buyer: { ...next.buyer, name: val } };
-        else if (key === 'seller.name') next = { ...next, seller: { ...next.seller, name: val } };
-        else if (key === 'price') next = { ...next, price: parseFloat(val) || next.price };
-        else if (key === 'grossCommissionPercent') next = { ...next, grossCommissionPercent: parseFloat(val) || next.grossCommissionPercent };
-        else (next as any)[key] = val;
-      });
+      // Single edit: apply all fields (form is pre-populated; user sees what they're setting)
+      // Bulk edit: only apply fields the user actually filled in / modified
+      if (!isBulk || buyerName) next = { ...next, buyer: { ...next.buyer, name: buyerName || next.buyer?.name || '' } };
+      if (!isBulk || sellerName) next = { ...next, seller: { ...next.seller, name: sellerName || next.seller?.name || '' } };
+      if (!isBulk || price) next = { ...next, price: parseFloat(price) || next.price };
+      if (!isBulk || coeDate) next = { ...next, coeDate: coeDate || next.coeDate };
+      if (!isBulk || grossCommPct) next = { ...next, grossCommissionPercent: grossCommPct !== '' ? parseFloat(grossCommPct) : next.grossCommissionPercent };
+      if (!isBulk || laoCutPct) next = { ...next, laoCutPercent: laoCutPct !== '' ? parseFloat(laoCutPct) : next.laoCutPercent };
+      if (!isBulk || splitsModified) next = { ...next, treySplitPercent: treySplit, kirkSplitPercent: kirkSplit };
       return next;
     });
     onSave(updated);
     onClose();
   };
 
-  const isDate = (key: string) => key === 'feasibilityDate' || key === 'coeDate';
-  const isNumber = (key: string) => key === 'price' || key === 'grossCommissionPercent';
+  const inputClass = (missing: boolean) => cn(
+    "w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent",
+    missing ? "border-amber-300 bg-amber-50/50" : "border-slate-200"
+  );
+
+  // Override confirmation screen
+  if (showOverrideConfirm) {
+    return (
+      <>
+        <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+        <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+          <div className="flex items-center justify-between p-5 border-b border-slate-200">
+            <div>
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" /> Confirm Overrides
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Some deals already have values for these fields.</p>
+            </div>
+            <button onClick={() => setShowOverrideConfirm(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {overrideWarnings.map(w => (
+              <div key={w.label} className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-amber-800 mb-1.5">Override <span className="font-bold">{w.label}</span> for:</p>
+                <ul className="space-y-0.5">
+                  {w.deals.map(d => (
+                    <li key={d} className="text-xs text-amber-700 flex items-center gap-1">
+                      <div className="w-1 h-1 rounded-full bg-amber-500 shrink-0" />
+                      {d}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <div className="p-5 border-t border-slate-200 flex gap-3">
+            <button onClick={() => setShowOverrideConfirm(false)} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
+              Go Back
+            </button>
+            <button onClick={applySave} className="flex-1 px-4 py-2 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors font-medium">
+              Confirm & Save
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
-      {/* Panel */}
       <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <div>
             <h3 className="font-semibold text-slate-900">
-              {isBulk ? `Bulk Edit (${transactions.length} deals)` : `Quick Edit — ${transactions[0].dealName}`}
+              {isBulk ? `Bulk Edit — ${transactions.length} deals` : transactions[0].dealName}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              {isBulk ? 'Fill in fields to apply to all selected deals' : 'Fill in the missing fields below'}
+              {isBulk ? 'Values applied to all selected deals. Leave blank to skip.' : 'Edit fields below. Amber fields are currently missing.'}
             </p>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
@@ -2927,40 +3015,113 @@ const QuickEditTransactionDrawer = ({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {allMissingKeys.length === 0 ? (
-            <div className="text-center py-8">
-              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
-              <p className="text-sm font-medium text-slate-700">All fields are complete!</p>
-            </div>
-          ) : (
-            allMissingKeys.map(key => (
-              <div key={key}>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  {fieldLabels[key] || key}
-                  <span className="ml-1 text-amber-500">*</span>
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {/* Parties */}
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Parties</p>
+            <div className="space-y-3">
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  Buyer Name
+                  {!isBulk && missingKeys.has('buyer.name') && <span className="text-amber-500">*</span>}
                 </label>
-                <input
-                  type={isDate(key) ? 'date' : isNumber(key) ? 'number' : 'text'}
-                  value={values[key] || ''}
-                  onChange={(e) => setValues(prev => ({ ...prev, [key]: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  placeholder={isNumber(key) ? '0' : ''}
-                />
+                <input type="text" value={buyerName} onChange={e => setBuyerName(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('buyer.name'))} placeholder="e.g. John Smith" />
               </div>
-            ))
-          )}
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  Seller Name
+                  {!isBulk && missingKeys.has('seller.name') && <span className="text-amber-500">*</span>}
+                </label>
+                <input type="text" value={sellerName} onChange={e => setSellerName(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('seller.name'))} placeholder="e.g. Jane Doe" />
+              </div>
+            </div>
+          </div>
+
+          {/* Financials */}
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Financials</p>
+            <div className="space-y-3">
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  Price ($)
+                  {!isBulk && missingKeys.has('price') && <span className="text-amber-500">*</span>}
+                </label>
+                <input type="number" value={price} onChange={e => setPrice(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('price'))} placeholder="0" min="0" />
+              </div>
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  COE Date
+                  {!isBulk && missingKeys.has('coeDate') && <span className="text-amber-500">*</span>}
+                </label>
+                <input type="date" value={coeDate} onChange={e => setCoeDate(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('coeDate'))} />
+              </div>
+            </div>
+          </div>
+
+          {/* Commission */}
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Commission</p>
+            <div className="space-y-3">
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  Gross Commission %
+                  {!isBulk && missingKeys.has('grossCommissionPercent') && <span className="text-amber-500">*</span>}
+                </label>
+                <input type="number" value={grossCommPct} onChange={e => setGrossCommPct(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('grossCommissionPercent'))} placeholder="0" min="0" max="100" step="0.5" />
+              </div>
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  LAO Cut %
+                  {!isBulk && missingKeys.has('laoCutPercent') && <span className="text-amber-500">*</span>}
+                </label>
+                <input type="number" value={laoCutPct} onChange={e => setLaoCutPct(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('laoCutPercent'))} placeholder="0" min="0" max="100" step="0.5" />
+              </div>
+
+              {/* Trey / Kirk Split Sliders */}
+              <div className={cn("rounded-lg p-3 space-y-3", splitsModified || !isBulk ? "bg-slate-50 border border-slate-200" : "bg-slate-50 border border-slate-200")}>
+                <p className="text-xs font-medium text-slate-700 mb-1">
+                  Trey / Kirk Split
+                  {!isBulk && (missingKeys.has('treySplitPercent') || missingKeys.has('kirkSplitPercent')) && <span className="ml-1 text-amber-500">*</span>}
+                  {isBulk && !splitsModified && <span className="ml-1 text-[10px] text-slate-400 font-normal">(move slider to apply)</span>}
+                </p>
+                <div>
+                  <div className="flex justify-between text-xs text-slate-500 mb-1">
+                    <span>Trey</span>
+                    <span className="font-mono font-semibold text-indigo-600">{treySplit}%</span>
+                  </div>
+                  <input type="range" min="0" max="100" step="0.5" value={treySplit}
+                    onChange={e => handleTreyChange(Number(e.target.value))}
+                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-indigo-500 bg-slate-200" />
+                </div>
+                <div>
+                  <div className="flex justify-between text-xs text-slate-500 mb-1">
+                    <span>Kirk</span>
+                    <span className="font-mono font-semibold text-sky-600">{kirkSplit}%</span>
+                  </div>
+                  <input type="range" min="0" max="100" step="0.5" value={kirkSplit}
+                    onChange={e => handleKirkChange(Number(e.target.value))}
+                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-sky-500 bg-slate-200" />
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden flex">
+                  <div className="bg-indigo-500 h-full transition-all" style={{ width: `${treySplit}%` }} />
+                  <div className="bg-sky-400 h-full transition-all" style={{ width: `${kirkSplit}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="p-5 border-t border-slate-200 flex gap-3">
           <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            disabled={allMissingKeys.length === 0 || Object.values(values).every(v => !v)}
-            className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
-          >
+          <button onClick={handleSaveClick} className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium">
             Save Changes
           </button>
         </div>
@@ -2979,34 +3140,107 @@ const QuickEditLeadDrawer = ({
   onClose: () => void;
 }) => {
   const isBulk = leads.length > 1;
+  const l0 = leads[0];
 
-  const allMissingKeys = useMemo(() => {
-    const keys = new Set<string>();
-    leads.forEach(l => getMissingLeadFields(l).forEach(f => keys.add(f.key)));
-    return Array.from(keys);
-  }, [leads]);
+  const [projectName, setProjectName] = useState(isBulk ? '' : (l0.projectName || ''));
+  const [contactName, setContactName] = useState(isBulk ? '' : (l0.contactName || ''));
+  const [lastSpokeDate, setLastSpokeDate] = useState(isBulk ? '' : (l0.lastSpokeDate || ''));
 
-  const fieldLabels: Record<string, string> = {
-    contactName: 'Contact Name',
-    lastSpokeDate: 'Last Spoke Date',
-    details: 'Details',
-    summary: 'Summary',
+  const [overrideWarnings, setOverrideWarnings] = useState<{ label: string; items: string[] }[]>([]);
+  const [showOverrideConfirm, setShowOverrideConfirm] = useState(false);
+
+  const missingKeys = useMemo(
+    () => new Set(getMissingLeadFields(l0).map(f => f.key)),
+    [l0]
+  );
+
+  const detectOverrides = () => {
+    const fieldChecks: { label: string; hasValue: (l: Lead) => boolean; newValFilled: boolean }[] = [
+      { label: 'Project Name', hasValue: l => !!(l.projectName), newValFilled: !!projectName },
+      { label: 'Contact', hasValue: l => !!(l.contactName), newValFilled: !!contactName },
+      { label: 'Last Spoke Date', hasValue: l => !!(l.lastSpokeDate), newValFilled: !!lastSpokeDate },
+    ];
+    return fieldChecks
+      .filter(fc => fc.newValFilled)
+      .map(fc => ({
+        label: fc.label,
+        items: leads.filter(l => fc.hasValue(l)).map(l => l.projectName),
+      }))
+      .filter(w => w.items.length > 0);
   };
 
-  const [values, setValues] = useState<Record<string, string>>({});
+  const handleSaveClick = () => {
+    if (isBulk) {
+      const warnings = detectOverrides();
+      if (warnings.length > 0) {
+        setOverrideWarnings(warnings);
+        setShowOverrideConfirm(true);
+        return;
+      }
+    }
+    applySave();
+  };
 
-  const handleSave = () => {
+  const applySave = () => {
     const updated = leads.map(l => {
       let next = { ...l };
-      Object.entries(values).forEach(([key, val]) => {
-        if (!val) return;
-        (next as any)[key] = val;
-      });
+      if (!isBulk || projectName) next = { ...next, projectName: projectName || next.projectName };
+      if (!isBulk || contactName) next = { ...next, contactName: contactName || next.contactName };
+      if (!isBulk || lastSpokeDate) next = { ...next, lastSpokeDate: lastSpokeDate || next.lastSpokeDate };
       return next;
     });
     onSave(updated);
     onClose();
   };
+
+  const inputClass = (missing: boolean) => cn(
+    "w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent",
+    missing ? "border-amber-300 bg-amber-50/50" : "border-slate-200"
+  );
+
+  if (showOverrideConfirm) {
+    return (
+      <>
+        <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+        <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+          <div className="flex items-center justify-between p-5 border-b border-slate-200">
+            <div>
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" /> Confirm Overrides
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Some leads already have values for these fields.</p>
+            </div>
+            <button onClick={() => setShowOverrideConfirm(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {overrideWarnings.map(w => (
+              <div key={w.label} className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-amber-800 mb-1.5">Override <span className="font-bold">{w.label}</span> for:</p>
+                <ul className="space-y-0.5">
+                  {w.items.map(name => (
+                    <li key={name} className="text-xs text-amber-700 flex items-center gap-1">
+                      <div className="w-1 h-1 rounded-full bg-amber-500 shrink-0" />
+                      {name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <div className="p-5 border-t border-slate-200 flex gap-3">
+            <button onClick={() => setShowOverrideConfirm(false)} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
+              Go Back
+            </button>
+            <button onClick={applySave} className="flex-1 px-4 py-2 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors font-medium">
+              Confirm & Save
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -3015,10 +3249,10 @@ const QuickEditLeadDrawer = ({
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <div>
             <h3 className="font-semibold text-slate-900">
-              {isBulk ? `Bulk Edit (${leads.length} leads)` : `Quick Edit — ${leads[0].projectName}`}
+              {isBulk ? `Bulk Edit — ${leads.length} leads` : l0.projectName || 'Edit Lead'}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              {isBulk ? 'Fill in fields to apply to all selected leads' : 'Fill in the missing fields below'}
+              {isBulk ? 'Values applied to all selected leads. Leave blank to skip.' : 'Edit fields below. Amber fields are currently missing.'}
             </p>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
@@ -3027,38 +3261,37 @@ const QuickEditLeadDrawer = ({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {allMissingKeys.length === 0 ? (
-            <div className="text-center py-8">
-              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
-              <p className="text-sm font-medium text-slate-700">All fields are complete!</p>
-            </div>
-          ) : (
-            allMissingKeys.map(key => (
-              <div key={key}>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
-                  {fieldLabels[key] || key}
-                  <span className="ml-1 text-amber-500">*</span>
-                </label>
-                <input
-                  type={key === 'lastSpokeDate' ? 'date' : 'text'}
-                  value={values[key] || ''}
-                  onChange={(e) => setValues(prev => ({ ...prev, [key]: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
-            ))
-          )}
+          <div>
+            <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+              Project Name
+              {!isBulk && missingKeys.has('projectName') && <span className="text-amber-500">*</span>}
+            </label>
+            <input type="text" value={projectName} onChange={e => setProjectName(e.target.value)}
+              className={inputClass(!isBulk && missingKeys.has('projectName'))} placeholder="Project / property name" />
+          </div>
+          <div>
+            <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+              Contact Name
+              {!isBulk && missingKeys.has('contactName') && <span className="text-amber-500">*</span>}
+            </label>
+            <input type="text" value={contactName} onChange={e => setContactName(e.target.value)}
+              className={inputClass(!isBulk && missingKeys.has('contactName'))} placeholder="Primary contact" />
+          </div>
+          <div>
+            <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+              Last Spoke Date
+              {!isBulk && missingKeys.has('lastSpokeDate') && <span className="text-amber-500">*</span>}
+            </label>
+            <input type="date" value={lastSpokeDate} onChange={e => setLastSpokeDate(e.target.value)}
+              className={inputClass(!isBulk && missingKeys.has('lastSpokeDate'))} />
+          </div>
         </div>
 
         <div className="p-5 border-t border-slate-200 flex gap-3">
           <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            disabled={allMissingKeys.length === 0 || Object.values(values).every(v => !v)}
-            className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
-          >
+          <button onClick={handleSaveClick} className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium">
             Save Changes
           </button>
         </div>
