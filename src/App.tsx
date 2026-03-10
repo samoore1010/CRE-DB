@@ -3909,9 +3909,11 @@ const TimelineSummary = ({ transaction }: { transaction: Transaction }) => {
 };
 
 const PartiesSummary = ({ transaction }: { transaction: Transaction }) => {
-  const buyers = [transaction.buyer, ...transaction.otherParties.filter(p => p.side === 'buyer')];
-  const sellers = [transaction.seller, ...transaction.otherParties.filter(p => p.side === 'seller')];
-  const thirds = transaction.otherParties.filter(p => !p.side || p.side === 'third-party');
+  const getSide = (p: Party): Party['side'] =>
+    p.side || (/^buyer/i.test(p.role) ? 'buyer' : /^seller/i.test(p.role) ? 'seller' : 'third-party');
+  const buyers = [transaction.buyer, ...transaction.otherParties.filter(p => getSide(p) === 'buyer')];
+  const sellers = [transaction.seller, ...transaction.otherParties.filter(p => getSide(p) === 'seller')];
+  const thirds = transaction.otherParties.filter(p => getSide(p) === 'third-party');
   const row = (p: Party, i: number, colorCls: string) => (
     <div key={p.id || i} className="flex items-center gap-2">
       <div className={cn("w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0", colorCls)}>
@@ -4007,8 +4009,11 @@ function deriveContacts(transactions: Transaction[], leads: Lead[]): DerivedCont
     }
     for (const p of t.otherParties || []) {
       if (p.name) {
-        upsert(p.name, p.entity, p.email, p.phone, p.role || 'Other', {
-          type: 'transaction-party', id: t.id, label: t.dealName, role: p.role, stage: t.stage, coeDate: t.coeDate
+        const inferredSide = p.side || (/^buyer/i.test(p.role) ? 'buyer' : /^seller/i.test(p.role) ? 'seller' : 'third-party');
+        const displayRole = inferredSide === 'buyer' ? 'Buyer' : inferredSide === 'seller' ? 'Seller' : (p.role || 'Other');
+        upsert(p.name, p.entity, p.email, p.phone, displayRole, {
+          type: inferredSide === 'buyer' ? 'transaction-buyer' : inferredSide === 'seller' ? 'transaction-seller' : 'transaction-party',
+          id: t.id, label: t.dealName, role: displayRole, stage: t.stage, coeDate: t.coeDate
         }, dateHint);
       }
     }
@@ -4303,7 +4308,22 @@ const TransactionDetailView = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'parties' | 'timeline' | 'documents'>('overview');
   const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState<Transaction>(transaction);
+
+  // Normalize parties on init: assign IDs to any party missing one, and infer `side`
+  // from legacy role text so existing 'Buyer 2' entries surface under Buyers.
+  const [formData, setFormData] = useState<Transaction>(() => {
+    const norm = (p: Party): Party => ({
+      ...p,
+      id: p.id || Math.random().toString(36).substr(2, 9),
+      side: p.side || (/^buyer/i.test(p.role) ? 'buyer' : /^seller/i.test(p.role) ? 'seller' : 'third-party'),
+    });
+    return {
+      ...transaction,
+      buyer: norm(transaction.buyer),
+      seller: norm(transaction.seller),
+      otherParties: transaction.otherParties.map(norm),
+    };
+  });
 
   // Helper to navigate to a party's contact page
   const goToContact = (name: string, email?: string) => {
