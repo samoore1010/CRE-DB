@@ -8,7 +8,6 @@ dotenv.config({ path: '.env.local' });
 dotenv.config();
 
 const require = createRequire(import.meta.url);
-const Database = require('better-sqlite3');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,22 +17,33 @@ const PORT = process.env.PORT || 3001;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Initialize SQLite
-const db = new Database(process.env.DB_PATH || 'pipeline.db');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS transactions (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT DEFAULT (datetime('now'))
-  );
-  CREATE TABLE IF NOT EXISTS leads (
-    id TEXT PRIMARY KEY,
-    data TEXT NOT NULL,
-    updated_at TEXT DEFAULT (datetime('now'))
-  );
-`);
+let db: any = null;
+try {
+  const Database = require('better-sqlite3');
+  db = new Database(process.env.DB_PATH || 'pipeline.db');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS leads (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  console.log('SQLite initialized successfully');
+} catch (e) {
+  console.error('SQLite initialization failed:', e);
+}
 
 app.use(express.json({ limit: '10mb' }));
+
+// Health check — no DB dependency
+app.get('/health', (_req: Request, res: Response) => {
+  res.json({ ok: true, db: db !== null });
+});
 
 // Serve static frontend in production
 if (IS_PROD) {
@@ -43,6 +53,7 @@ if (IS_PROD) {
 // --- Transactions ---
 
 app.get('/api/transactions', (_req: Request, res: Response) => {
+  if (!db) { res.json([]); return; }
   const rows = db.prepare('SELECT data FROM transactions').all() as { data: string }[];
   res.json(rows.map(r => JSON.parse(r.data)));
 });
@@ -112,6 +123,7 @@ app.post('/api/transactions/batch-delete-permanent', (req: Request, res: Respons
 // --- Leads ---
 
 app.get('/api/leads', (_req: Request, res: Response) => {
+  if (!db) { res.json([]); return; }
   const rows = db.prepare('SELECT data FROM leads').all() as { data: string }[];
   res.json(rows.map(r => JSON.parse(r.data)));
 });
