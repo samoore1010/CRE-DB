@@ -238,6 +238,30 @@ interface Transaction {
   deletedAt?: string;
 }
 
+// --- Validation Helpers ---
+
+function getMissingTransactionFields(t: Transaction): { key: string; label: string }[] {
+  const missing: { key: string; label: string }[] = [];
+  if (!t.projectYear) missing.push({ key: 'projectYear', label: 'Year' });
+  if (!t.buyer?.name) missing.push({ key: 'buyer.name', label: 'Buyer' });
+  if (!t.seller?.name) missing.push({ key: 'seller.name', label: 'Seller' });
+  if (!t.price) missing.push({ key: 'price', label: 'Price' });
+  if (t.grossCommissionPercent === undefined || t.grossCommissionPercent === null) missing.push({ key: 'grossCommissionPercent', label: 'Base %' });
+  if (!t.feasibilityDate) missing.push({ key: 'feasibilityDate', label: 'Feas Date' });
+  if (!t.coeDate) missing.push({ key: 'coeDate', label: 'COE Date' });
+  if (!t.pid) missing.push({ key: 'pid', label: 'PID' });
+  return missing;
+}
+
+function getMissingLeadFields(l: Lead): { key: string; label: string }[] {
+  const missing: { key: string; label: string }[] = [];
+  if (!l.contactName) missing.push({ key: 'contactName', label: 'Contact' });
+  if (!l.lastSpokeDate) missing.push({ key: 'lastSpokeDate', label: 'Last Spoke' });
+  if (!l.details) missing.push({ key: 'details', label: 'Details' });
+  if (!l.summary) missing.push({ key: 'summary', label: 'Summary' });
+  return missing;
+}
+
 // --- Mock Data ---
 
 const INITIAL_TRANSACTIONS: Transaction[] = [];
@@ -882,68 +906,14 @@ const DataManagementView = ({
   onImport: (newTransactions: Transaction[]) => void,
   onImportLeads: (newLeads: Lead[]) => void
 }) => {
-  const [activeTab, setActiveTab] = useState<'import' | 'manage'>('import');
   const [dataType, setDataType] = useState<'transactions' | 'leads'>('transactions');
-
-  const [showIncompleteOnly, setShowIncompleteOnly] = useState(true);
-  const [filterYear, setFilterYear] = useState<string>('All');
   const [isDragging, setIsDragging] = useState(false);
-  
+
   // Preview State
   const [previewData, setPreviewData] = useState<Transaction[]>([]);
   const [previewLeads, setPreviewLeads] = useState<Lead[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<string>>(new Set());
-
-  // Validation Logic
-  const getMissingFields = (t: Transaction) => {
-    const missing: string[] = [];
-    if (!t.projectYear) missing.push('Year');
-    if (!t.stage) missing.push('Stage');
-    if (!t.seller.name) missing.push('Seller');
-    if (!t.buyer.name) missing.push('Buyer');
-    if (!t.price) missing.push('Price');
-    if (t.grossCommissionPercent === undefined) missing.push('Base Comm');
-    if (t.laoCutPercent === undefined) missing.push('LAO Split');
-    if (t.treySplitPercent === undefined) missing.push('Trey Comm');
-    if (t.kirkSplitPercent === undefined) missing.push('Kirk Comm');
-    if (!t.feasibilityDate) missing.push('Feas Date');
-    if (!t.coeDate) missing.push('COE');
-    if (!t.pid) missing.push('PID');
-    return missing;
-  };
-
-  const getMissingLeadFields = (l: Lead) => {
-    const missing: string[] = [];
-    if (!l.type) missing.push('Type');
-    if (!l.projectName) missing.push('Project Name');
-    if (!l.contactName) missing.push('Contact');
-    return missing;
-  };
-
-  const filteredTransactions = useMemo(() => {
-    let data = [...transactions];
-    if (showIncompleteOnly) {
-      data = data.filter(t => getMissingFields(t).length > 0);
-    }
-    if (filterYear !== 'All') {
-      data = data.filter(t => t.projectYear === filterYear);
-    }
-    return data;
-  }, [transactions, showIncompleteOnly, filterYear]);
-
-  const filteredLeads = useMemo(() => {
-      let data = [...leads];
-      if (showIncompleteOnly) {
-          data = data.filter(l => getMissingLeadFields(l).length > 0);
-      }
-      return data;
-  }, [leads, showIncompleteOnly]);
-
-  const uniqueYears = useMemo(() => {
-    const years = new Set(transactions.map(t => t.projectYear).filter(Boolean));
-    return Array.from(years).sort().reverse();
-  }, [transactions]);
 
   const handleFileUpload = (file: File) => {
     Papa.parse(file, {
@@ -1212,40 +1182,11 @@ const DataManagementView = ({
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Data Management</h1>
-          <p className="text-slate-500">Import and validate your pipeline data.</p>
+          <p className="text-slate-500">Import your pipeline data.</p>
         </div>
       </div>
 
-      {/* Subtabs */}
-      <div className="border-b border-slate-200">
-        <nav className="-mb-px flex space-x-8">
-            <button
-                onClick={() => setActiveTab('import')}
-                className={cn(
-                    "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors",
-                    activeTab === 'import'
-                        ? "border-indigo-500 text-indigo-600"
-                        : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-                )}
-            >
-                Data Import
-            </button>
-            <button
-                onClick={() => setActiveTab('manage')}
-                className={cn(
-                    "whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors",
-                    activeTab === 'manage'
-                        ? "border-indigo-500 text-indigo-600"
-                        : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-                )}
-            >
-                Data Validation
-            </button>
-        </nav>
-      </div>
-
-      {activeTab === 'import' && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
               <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                   <h3 className="text-lg font-medium text-slate-900 mb-4">Select Data Type</h3>
                   <div className="flex gap-4 mb-6">
@@ -1321,276 +1262,6 @@ const DataManagementView = ({
                 </div>
               </div>
           </div>
-      )}
-
-      {activeTab === 'manage' && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-            <div className="flex justify-between items-center">
-                <div className="flex bg-slate-100 p-1 rounded-lg">
-                    <button
-                        onClick={() => setDataType('transactions')}
-                        className={cn(
-                            "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
-                            dataType === 'transactions' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                        )}
-                    >
-                        Transactions
-                    </button>
-                    <button
-                        onClick={() => setDataType('leads')}
-                        className={cn(
-                            "px-3 py-1.5 text-sm font-medium rounded-md transition-all",
-                            dataType === 'leads' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                        )}
-                    >
-                        Leads
-                    </button>
-                </div>
-
-                <div className="flex gap-2">
-                    {dataType === 'transactions' && (
-                        <select
-                            value={filterYear}
-                            onChange={(e) => setFilterYear(e.target.value)}
-                            className="px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                        >
-                            <option value="All">All Years</option>
-                            {uniqueYears.map(year => (
-                                <option key={year} value={year as string}>{year}</option>
-                            ))}
-                        </select>
-                    )}
-                    <button 
-                        onClick={() => setShowIncompleteOnly(!showIncompleteOnly)}
-                        className={cn(
-                            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors border",
-                            showIncompleteOnly 
-                                ? "bg-amber-50 text-amber-700 border-amber-200" 
-                                : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
-                        )}
-                    >
-                        <Filter className="w-4 h-4" />
-                        {showIncompleteOnly ? 'Showing Incomplete' : 'Showing All'}
-                    </button>
-                </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                    {dataType === 'transactions' ? (
-                        <table className="w-full text-left text-xs">
-                            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 sticky top-0 z-10">
-                                <tr>
-                                    <th className="px-3 py-2 w-8"></th>
-                                    <th className="px-3 py-2 min-w-[60px]">Year</th>
-                                    <th className="px-3 py-2 min-w-[80px]">Stage</th>
-                                    <th className="px-3 py-2 min-w-[120px]">Deal Name</th>
-                                    <th className="px-3 py-2 min-w-[100px]">Seller</th>
-                                    <th className="px-3 py-2 min-w-[100px]">Buyer</th>
-                                    <th className="px-3 py-2 min-w-[100px] text-right">Price</th>
-                                    <th className="px-3 py-2 min-w-[60px] text-right">Base %</th>
-                                    <th className="px-3 py-2 min-w-[60px] text-right">LAO %</th>
-                                    <th className="px-3 py-2 min-w-[60px] text-right">Trey %</th>
-                                    <th className="px-3 py-2 min-w-[60px] text-right">Kirk %</th>
-                                    <th className="px-3 py-2 min-w-[100px]">Feas Date</th>
-                                    <th className="px-3 py-2 min-w-[100px]">COE Date</th>
-                                    <th className="px-3 py-2 min-w-[80px]">PID</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {filteredTransactions.map((t) => {
-                                    const missing = getMissingFields(t);
-                                    const hasErrors = missing.length > 0;
-                                    
-                                    return (
-                                        <tr key={t.id} className={cn("hover:bg-slate-50 group", hasErrors ? "bg-amber-50/30" : "")}>
-                                            <td className="px-3 py-2">
-                                                {hasErrors ? (
-                                                    <div className="group relative">
-                                                        <AlertCircle className="w-4 h-4 text-amber-500 cursor-help" />
-                                                        <div className="absolute left-6 top-0 hidden group-hover:block bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-50 w-32">
-                                                            Missing: {missing.join(', ')}
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 opacity-50" />
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.projectYear} 
-                                                    onChange={(val) => onUpdateTransaction({...t, projectYear: val})}
-                                                    className={!t.projectYear ? "bg-amber-100" : ""}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.stage} 
-                                                    type="select"
-                                                    onChange={(val) => onUpdateTransaction({...t, stage: val})}
-                                                    className={!t.stage ? "bg-amber-100" : ""}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.dealName} 
-                                                    onChange={(val) => onUpdateTransaction({...t, dealName: val})}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.seller.name} 
-                                                    onChange={(val) => onUpdateTransaction({...t, seller: {...t.seller, name: val}})}
-                                                    className={!t.seller.name ? "bg-amber-100" : ""}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.buyer.name} 
-                                                    onChange={(val) => onUpdateTransaction({...t, buyer: {...t.buyer, name: val}})}
-                                                    className={!t.buyer.name ? "bg-amber-100" : ""}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2 text-right">
-                                                <EditableCell 
-                                                    value={t.price} 
-                                                    type="number"
-                                                    onChange={(val) => onUpdateTransaction({...t, price: Number(val)})}
-                                                    className={!t.price ? "bg-amber-100 text-right" : "text-right"}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2 text-right">
-                                                <EditableCell 
-                                                    value={t.grossCommissionPercent} 
-                                                    type="number"
-                                                    onChange={(val) => onUpdateTransaction({...t, grossCommissionPercent: Number(val)})}
-                                                    className={t.grossCommissionPercent === undefined ? "bg-amber-100 text-right" : "text-right"}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2 text-right">
-                                                <EditableCell 
-                                                    value={t.laoCutPercent} 
-                                                    type="number"
-                                                    onChange={(val) => onUpdateTransaction({...t, laoCutPercent: Number(val)})}
-                                                    className={t.laoCutPercent === undefined ? "bg-amber-100 text-right" : "text-right"}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2 text-right">
-                                                <EditableCell 
-                                                    value={t.treySplitPercent} 
-                                                    type="number"
-                                                    onChange={(val) => onUpdateTransaction({...t, treySplitPercent: Number(val)})}
-                                                    className={t.treySplitPercent === undefined ? "bg-amber-100 text-right" : "text-right"}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2 text-right">
-                                                <EditableCell 
-                                                    value={t.kirkSplitPercent} 
-                                                    type="number"
-                                                    onChange={(val) => onUpdateTransaction({...t, kirkSplitPercent: Number(val)})}
-                                                    className={t.kirkSplitPercent === undefined ? "bg-amber-100 text-right" : "text-right"}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.feasibilityDate ? format(parseISO(t.feasibilityDate), 'yyyy-MM-dd') : ''} 
-                                                    type="date"
-                                                    onChange={(val) => onUpdateTransaction({...t, feasibilityDate: val})}
-                                                    className={!t.feasibilityDate ? "bg-amber-100" : ""}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.coeDate ? format(parseISO(t.coeDate), 'yyyy-MM-dd') : ''} 
-                                                    type="date"
-                                                    onChange={(val) => onUpdateTransaction({...t, coeDate: val})}
-                                                    className={!t.coeDate ? "bg-amber-100" : ""}
-                                                />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell 
-                                                    value={t.pid} 
-                                                    onChange={(val) => onUpdateTransaction({...t, pid: val, apn: val})}
-                                                    className={!t.pid ? "bg-amber-100" : ""}
-                                                />
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    ) : (
-                        <table className="w-full text-left text-xs">
-                            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 sticky top-0 z-10">
-                                <tr>
-                                    <th className="px-3 py-2 w-8"></th>
-                                    <th className="px-3 py-2">Type</th>
-                                    <th className="px-3 py-2">Project Name</th>
-                                    <th className="px-3 py-2">Contact</th>
-                                    <th className="px-3 py-2">Details</th>
-                                    <th className="px-3 py-2">Last Spoke</th>
-                                    <th className="px-3 py-2">Summary</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {filteredLeads.map((l) => {
-                                    const missing = getMissingLeadFields(l);
-                                    const hasErrors = missing.length > 0;
-                                    return (
-                                        <tr key={l.id} className={cn("hover:bg-slate-50 group", hasErrors ? "bg-amber-50/30" : "")}>
-                                            <td className="px-3 py-2">
-                                                {hasErrors ? (
-                                                    <div className="group relative">
-                                                        <AlertCircle className="w-4 h-4 text-amber-500 cursor-help" />
-                                                        <div className="absolute left-6 top-0 hidden group-hover:block bg-slate-800 text-white text-[10px] p-2 rounded shadow-lg z-50 w-32">
-                                                            Missing: {missing.join(', ')}
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 opacity-50" />
-                                                )}
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell value={l.type} onChange={(v) => onUpdateLead({...l, type: v})} />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell value={l.projectName} onChange={(v) => onUpdateLead({...l, projectName: v})} />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell value={l.contactName} onChange={(v) => onUpdateLead({...l, contactName: v})} />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell value={l.details} onChange={(v) => onUpdateLead({...l, details: v})} />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell value={l.lastSpokeDate ? l.lastSpokeDate.split('T')[0] : ''} onChange={(v) => onUpdateLead({...l, lastSpokeDate: v ? new Date(v).toISOString() : ''})} type="date" />
-                                            </td>
-                                            <td className="px-3 py-2">
-                                                <EditableCell value={l.summary} onChange={(v) => onUpdateLead({...l, summary: v})} />
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    )}
-        </div>
-        {((dataType === 'transactions' && filteredTransactions.length === 0) || (dataType === 'leads' && filteredLeads.length === 0)) && (
-            <div className="p-12 text-center text-slate-500">
-                {showIncompleteOnly ? (
-                    <>
-                        <CheckCircle2 className="w-12 h-12 mx-auto text-emerald-500 mb-3" />
-                        <h3 className="text-lg font-medium text-slate-900">All Clean!</h3>
-                        <p>No incomplete {dataType === 'transactions' ? 'transactions' : 'leads'} found.</p>
-                    </>
-                ) : (
-                    <p>No {dataType === 'transactions' ? 'transactions' : 'leads'} found.</p>
-                )}
-            </div>
-        )}
-      </div>
-          </div>
-      )}
     </div>
   );
 };
@@ -2345,21 +2016,25 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddR
   );
 };
 
-const LeadsView = ({ 
-  leads, 
+const LeadsView = ({
+  leads,
   onSelectLead,
   onDeleteLead,
-  onBatchDelete
-}: { 
-  leads: Lead[], 
+  onBatchDelete,
+  onUpdateLead
+}: {
+  leads: Lead[],
   onSelectLead: (id: string) => void,
   onDeleteLead: (id: string) => void,
-  onBatchDelete: (ids: string[]) => void
+  onBatchDelete: (ids: string[]) => void,
+  onUpdateLead?: (l: Lead) => void
 }) => {
   const [search, setSearch] = useState('');
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal']));
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+  const [incompleteFilter, setIncompleteFilter] = useState(false);
+  const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
 
   const toggleTypeFilter = (type: string) => {
     const newSet = new Set(selectedTypes);
@@ -2371,18 +2046,27 @@ const LeadsView = ({
     setSelectedTypes(newSet);
   };
 
+  const incompleteCount = useMemo(
+    () => leads.filter(l => getMissingLeadFields(l).length > 0).length,
+    [leads]
+  );
+
   const filteredLeads = useMemo(() => {
     let data = [...leads];
-    
+
     if (selectedTypes.size > 0) {
       data = data.filter(l => selectedTypes.has(l.type));
     } else {
       data = [];
     }
 
+    if (incompleteFilter) {
+      data = data.filter(l => getMissingLeadFields(l).length > 0);
+    }
+
     if (search) {
       const lowerSearch = search.toLowerCase();
-      data = data.filter(l => 
+      data = data.filter(l =>
         l.projectName.toLowerCase().includes(lowerSearch) ||
         l.contactName.toLowerCase().includes(lowerSearch) ||
         l.details.toLowerCase().includes(lowerSearch) ||
@@ -2396,8 +2080,8 @@ const LeadsView = ({
         let bValue: any = b[sortConfig.key as keyof Lead];
 
         if (sortConfig.key === 'lastSpokeDate') {
-            aValue = aValue ? new Date(aValue).getTime() : 0;
-            bValue = bValue ? new Date(bValue).getTime() : 0;
+          aValue = aValue ? new Date(aValue).getTime() : 0;
+          bValue = bValue ? new Date(bValue).getTime() : 0;
         }
 
         if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -2407,7 +2091,7 @@ const LeadsView = ({
     }
 
     return data;
-  }, [leads, search, sortConfig, selectedTypes]);
+  }, [leads, search, sortConfig, selectedTypes, incompleteFilter]);
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds);
@@ -2471,38 +2155,37 @@ const LeadsView = ({
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide">
-        <Filter className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <Filter className="w-4 h-4 text-slate-400 mr-1 shrink-0" />
         {(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const).map(type => (
-            <button
+          <button
             key={type}
             onClick={() => toggleTypeFilter(type)}
             className={cn(
-                "px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap border",
-                selectedTypes.has(type)
-                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" 
+              "px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap border",
+              selectedTypes.has(type)
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
                 : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
             )}
-            >
+          >
             {type}
-            </button>
+          </button>
         ))}
+        {incompleteCount > 0 && (
+          <button
+            onClick={() => setIncompleteFilter(!incompleteFilter)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+              incompleteFilter
+                ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+            )}
+          >
+            <AlertTriangle className="w-3 h-3" />
+            {incompleteCount} incomplete
+          </button>
+        )}
       </div>
-
-      {selectedIds.size > 0 && (
-        <div className="bg-indigo-50 border border-indigo-100 px-4 py-2 rounded-lg flex items-center justify-between animate-in slide-in-from-top-2">
-            <span className="text-sm text-indigo-700 font-medium">{selectedIds.size} selected</span>
-            <button 
-                onClick={() => {
-                    onBatchDelete(Array.from(selectedIds));
-                    setSelectedIds(new Set());
-                }}
-                className="text-xs bg-white text-red-600 border border-red-200 px-3 py-1.5 rounded-md hover:bg-red-50 font-medium transition-colors flex items-center gap-1"
-            >
-                <Trash2 className="w-3 h-3" /> Delete Selected
-            </button>
-        </div>
-      )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
@@ -2535,65 +2218,76 @@ const LeadsView = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredLeads.map((lead) => (
-                <tr 
-                  key={lead.id} 
-                  onClick={(e) => {
-                    // Prevent row click when clicking checkbox or delete button
-                    if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('button')) return;
-                    onSelectLead(lead.id);
-                  }}
-                  className={cn(
-                    "hover:bg-slate-50 transition-colors group cursor-pointer",
-                    selectedIds.has(lead.id) && "bg-indigo-50/50"
-                  )}
-                >
-                  <td className="px-4 py-3">
-                    <input 
-                      type="checkbox" 
-                      checked={selectedIds.has(lead.id)}
-                      onChange={() => toggleSelection(lead.id)}
-                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={cn(
-                        "px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap",
-                        lead.type.includes('Converted') ? "bg-emerald-100 text-emerald-700" :
-                        lead.type.includes('Live') ? "bg-blue-100 text-blue-700" :
-                        lead.type.includes('True') ? "bg-amber-100 text-amber-700" :
-                        "bg-slate-100 text-slate-600"
-                    )}>
-                        {lead.type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 font-medium text-slate-900">{lead.projectName}</td>
-                  <td className="px-4 py-3 text-slate-600">{lead.contactName}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate" title={lead.details}>{lead.details}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {(() => {
-                      if (!lead.lastSpokeDate) return <span className="text-slate-400 text-xs">Never</span>;
-                      const days = Math.floor((new Date().getTime() - parseISO(lead.lastSpokeDate).getTime()) / 86400000);
-                      const label = days === 0 ? 'Today' : days === 1 ? '1d ago' : `${days}d ago`;
-                      const color = days <= 7 ? 'bg-emerald-50 text-emerald-700' : days <= 30 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
-                      return <span className={cn("px-2 py-1 rounded-full text-xs font-semibold", color)}>{label}</span>;
-                    })()}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-xs max-w-[250px] truncate" title={lead.summary}>{lead.summary}</td>
-                  <td className="px-4 py-3">
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteLead(lead.id);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
-                        title="Delete Lead"
+              {filteredLeads.map((lead) => {
+                const missingFields = getMissingLeadFields(lead);
+                return (
+                    <tr
+                      key={lead.id}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('button')) return;
+                        onSelectLead(lead.id);
+                      }}
+                      className={cn(
+                        "hover:bg-slate-50 transition-colors group cursor-pointer",
+                        selectedIds.has(lead.id) && "bg-indigo-50/50",
+                        missingFields.length > 0 && "border-l-2 border-l-amber-300"
+                      )}
                     >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(lead.id)}
+                          onChange={() => toggleSelection(lead.id)}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn(
+                          "px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap",
+                          lead.type.includes('Converted') ? "bg-emerald-100 text-emerald-700" :
+                          lead.type.includes('Live') ? "bg-blue-100 text-blue-700" :
+                          lead.type.includes('True') ? "bg-amber-100 text-amber-700" :
+                          "bg-slate-100 text-slate-600"
+                        )}>
+                          {lead.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{lead.projectName}</td>
+                      <td className="px-4 py-3 text-slate-600">{lead.contactName}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate" title={lead.details}>{lead.details}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {(() => {
+                          if (!lead.lastSpokeDate) return <span className="text-slate-400 text-xs">Never</span>;
+                          const days = Math.floor((new Date().getTime() - parseISO(lead.lastSpokeDate).getTime()) / 86400000);
+                          const label = days === 0 ? 'Today' : days === 1 ? '1d ago' : `${days}d ago`;
+                          const color = days <= 7 ? 'bg-emerald-50 text-emerald-700' : days <= 30 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
+                          return <span className={cn("px-2 py-1 rounded-full text-xs font-semibold", color)}>{label}</span>;
+                        })()}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[250px] truncate" title={lead.summary}>{lead.summary}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {missingFields.length > 0 && onUpdateLead && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDrawerLeads([lead]); }}
+                              className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
+                              title={`Missing: ${missingFields.map(f => f.label).join(', ')}`}
+                            >
+                              <AlertTriangle className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onDeleteLead(lead.id); }}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                            title="Delete Lead"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -2603,6 +2297,42 @@ const LeadsView = ({
           </div>
         )}
       </div>
+
+      {/* Floating Action Bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-full shadow-2xl z-50 animate-in slide-in-from-bottom-4 duration-200">
+          <span className="text-sm font-medium pr-1">{selectedIds.size} selected</span>
+          <div className="w-px h-4 bg-slate-600" />
+          {onUpdateLead && (
+            <button
+              onClick={() => setDrawerLeads(filteredLeads.filter(l => selectedIds.has(l.id)))}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-xs font-medium transition-colors"
+            >
+              <Edit3 className="w-3 h-3" />
+              Bulk Edit
+            </button>
+          )}
+          <button
+            onClick={() => { onBatchDelete(Array.from(selectedIds)); setSelectedIds(new Set()); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs font-medium transition-colors"
+          >
+            <Trash2 className="w-3 h-3" />
+            Delete
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="p-1.5 text-slate-400 hover:text-white transition-colors ml-1">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Quick Edit Drawer */}
+      {drawerLeads && onUpdateLead && (
+        <QuickEditLeadDrawer
+          leads={drawerLeads}
+          onSave={(updated) => updated.forEach(l => onUpdateLead(l))}
+          onClose={() => setDrawerLeads(null)}
+        />
+      )}
     </div>
   );
 };
@@ -3124,6 +2854,219 @@ const DealHealthBadge = ({ health }: { health: 'green' | 'yellow' | 'red' }) => 
   return <div className={cn("w-2 h-2 rounded-full shrink-0", styles[health])} title={health === 'green' ? 'Healthy' : health === 'yellow' ? 'Needs attention' : 'Overdue items'} />;
 };
 
+// --- Quick Edit Drawer ---
+
+const QuickEditTransactionDrawer = ({
+  transactions,
+  onSave,
+  onClose,
+}: {
+  transactions: Transaction[];
+  onSave: (updated: Transaction[]) => void;
+  onClose: () => void;
+}) => {
+  const isBulk = transactions.length > 1;
+
+  // Collect which fields are missing across the selection
+  const allMissingKeys = useMemo(() => {
+    const keys = new Set<string>();
+    transactions.forEach(t => getMissingTransactionFields(t).forEach(f => keys.add(f.key)));
+    return Array.from(keys);
+  }, [transactions]);
+
+  const fieldLabels: Record<string, string> = {
+    feasibilityDate: 'Feasibility Date',
+    coeDate: 'COE Date',
+    pid: 'PID',
+    price: 'Price',
+    grossCommissionPercent: 'Base Commission %',
+    'buyer.name': 'Buyer Name',
+    'seller.name': 'Seller Name',
+    projectYear: 'Year',
+  };
+
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const handleSave = () => {
+    const updated = transactions.map(t => {
+      let next = { ...t };
+      Object.entries(values).forEach(([key, val]: [string, string]) => {
+        if (!val) return;
+        if (key === 'buyer.name') next = { ...next, buyer: { ...next.buyer, name: val } };
+        else if (key === 'seller.name') next = { ...next, seller: { ...next.seller, name: val } };
+        else if (key === 'price') next = { ...next, price: parseFloat(val) || next.price };
+        else if (key === 'grossCommissionPercent') next = { ...next, grossCommissionPercent: parseFloat(val) || next.grossCommissionPercent };
+        else (next as any)[key] = val;
+      });
+      return next;
+    });
+    onSave(updated);
+    onClose();
+  };
+
+  const isDate = (key: string) => key === 'feasibilityDate' || key === 'coeDate';
+  const isNumber = (key: string) => key === 'price' || key === 'grossCommissionPercent';
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+      {/* Panel */}
+      <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+          <div>
+            <h3 className="font-semibold text-slate-900">
+              {isBulk ? `Bulk Edit (${transactions.length} deals)` : `Quick Edit — ${transactions[0].dealName}`}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {isBulk ? 'Fill in fields to apply to all selected deals' : 'Fill in the missing fields below'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {allMissingKeys.length === 0 ? (
+            <div className="text-center py-8">
+              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
+              <p className="text-sm font-medium text-slate-700">All fields are complete!</p>
+            </div>
+          ) : (
+            allMissingKeys.map(key => (
+              <div key={key}>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  {fieldLabels[key] || key}
+                  <span className="ml-1 text-amber-500">*</span>
+                </label>
+                <input
+                  type={isDate(key) ? 'date' : isNumber(key) ? 'number' : 'text'}
+                  value={values[key] || ''}
+                  onChange={(e) => setValues(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  placeholder={isNumber(key) ? '0' : ''}
+                />
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-5 border-t border-slate-200 flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={allMissingKeys.length === 0 || Object.values(values).every(v => !v)}
+            className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const QuickEditLeadDrawer = ({
+  leads,
+  onSave,
+  onClose,
+}: {
+  leads: Lead[];
+  onSave: (updated: Lead[]) => void;
+  onClose: () => void;
+}) => {
+  const isBulk = leads.length > 1;
+
+  const allMissingKeys = useMemo(() => {
+    const keys = new Set<string>();
+    leads.forEach(l => getMissingLeadFields(l).forEach(f => keys.add(f.key)));
+    return Array.from(keys);
+  }, [leads]);
+
+  const fieldLabels: Record<string, string> = {
+    contactName: 'Contact Name',
+    lastSpokeDate: 'Last Spoke Date',
+    details: 'Details',
+    summary: 'Summary',
+  };
+
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const handleSave = () => {
+    const updated = leads.map(l => {
+      let next = { ...l };
+      Object.entries(values).forEach(([key, val]) => {
+        if (!val) return;
+        (next as any)[key] = val;
+      });
+      return next;
+    });
+    onSave(updated);
+    onClose();
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="flex items-center justify-between p-5 border-b border-slate-200">
+          <div>
+            <h3 className="font-semibold text-slate-900">
+              {isBulk ? `Bulk Edit (${leads.length} leads)` : `Quick Edit — ${leads[0].projectName}`}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {isBulk ? 'Fill in fields to apply to all selected leads' : 'Fill in the missing fields below'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {allMissingKeys.length === 0 ? (
+            <div className="text-center py-8">
+              <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
+              <p className="text-sm font-medium text-slate-700">All fields are complete!</p>
+            </div>
+          ) : (
+            allMissingKeys.map(key => (
+              <div key={key}>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  {fieldLabels[key] || key}
+                  <span className="ml-1 text-amber-500">*</span>
+                </label>
+                <input
+                  type={key === 'lastSpokeDate' ? 'date' : 'text'}
+                  value={values[key] || ''}
+                  onChange={(e) => setValues(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="p-5 border-t border-slate-200 flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={allMissingKeys.length === 0 || Object.values(values).every(v => !v)}
+            className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
 const PipelineView = ({
   transactions,
   onSelectDeal,
@@ -3138,12 +3081,14 @@ const PipelineView = ({
   onUpdateTransaction?: (t: Transaction) => void
 }) => {
   const [search, setSearch] = useState('');
-  const [selectedStages, setSelectedStages] = useState<Set<PipelineStage>>(new Set(['LOI', 'Contract', 'Escrow', 'Closed', 'Option']));
+  const [selectedStages, setSelectedStages] = useState<Set<PipelineStage>>(new Set(['LOI', 'Contract', 'Escrow', 'Option']));
   const [filterYear, setFilterYear] = useState<string>('All');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [dragDealId, setDragDealId] = useState<string | null>(null);
+  const [incompleteFilter, setIncompleteFilter] = useState(false);
+  const [drawerTransactions, setDrawerTransactions] = useState<Transaction[] | null>(null);
 
   const toggleStageFilter = (stage: PipelineStage) => {
     const newSet = new Set(selectedStages);
@@ -3160,9 +3105,14 @@ const PipelineView = ({
     return Array.from(years).sort().reverse();
   }, [transactions]);
 
+  const incompleteCount = useMemo(
+    () => transactions.filter(t => getMissingTransactionFields(t).length > 0).length,
+    [transactions]
+  );
+
   const filteredData = useMemo(() => {
     let data = [...transactions];
-    
+
     if (selectedStages.size > 0) {
       data = data.filter(t => selectedStages.has(t.stage));
     } else {
@@ -3173,9 +3123,13 @@ const PipelineView = ({
       data = data.filter(t => t.projectYear === filterYear);
     }
 
+    if (incompleteFilter) {
+      data = data.filter(t => getMissingTransactionFields(t).length > 0);
+    }
+
     if (search) {
       const lowerSearch = search.toLowerCase();
-      data = data.filter(t => 
+      data = data.filter(t =>
         t.dealName.toLowerCase().includes(lowerSearch) ||
         t.address.toLowerCase().includes(lowerSearch) ||
         t.clientContact.toLowerCase().includes(lowerSearch) ||
@@ -3216,7 +3170,7 @@ const PipelineView = ({
     }
 
     return data;
-  }, [transactions, search, sortConfig, selectedStages, filterYear]);
+  }, [transactions, search, sortConfig, selectedStages, filterYear, incompleteFilter]);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -3349,20 +3303,22 @@ const PipelineView = ({
                         ))}
                     </select>
                 </div>
-            </div>
 
-            {selectedIds.size > 0 && (
-                <button
-                    onClick={() => {
-                        onBatchDelete(Array.from(selectedIds));
-                        setSelectedIds(new Set());
-                    }}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 transition-colors"
-                >
-                    <Trash2 className="w-3 h-3" />
-                    Delete Selected ({selectedIds.size})
-                </button>
-            )}
+                {incompleteCount > 0 && (
+                  <button
+                    onClick={() => setIncompleteFilter(!incompleteFilter)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+                      incompleteFilter
+                        ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                        : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                    )}
+                  >
+                    <AlertTriangle className="w-3 h-3" />
+                    {incompleteCount} incomplete
+                  </button>
+                )}
+            </div>
         </div>
       </div>
 
@@ -3408,13 +3364,15 @@ const PipelineView = ({
           <tbody className="divide-y divide-slate-100">
             {filteredData.map((deal) => {
               const grossComm = deal.price * (deal.grossCommissionPercent / 100);
+              const missingFields = getMissingTransactionFields(deal);
               return (
                 <tr
                   key={deal.id}
                   onClick={() => onSelectDeal(deal.id)}
                   className={cn(
                     "hover:bg-slate-50 cursor-pointer transition-colors group",
-                    selectedIds.has(deal.id) && "bg-indigo-50/50"
+                    selectedIds.has(deal.id) && "bg-indigo-50/50",
+                    missingFields.length > 0 && "border-l-2 border-l-amber-300"
                   )}
                 >
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -3440,14 +3398,25 @@ const PipelineView = ({
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                     {deal.coeDate ? format(parseISO(deal.coeDate), 'MM/dd/yy') : '-'}
                   </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }}
-                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
-                      title="Delete Transaction"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {missingFields.length > 0 && (
+                        <button
+                          onClick={() => setDrawerTransactions([deal])}
+                          className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
+                          title={`Missing: ${missingFields.map(f => f.label).join(', ')}`}
+                        >
+                          <AlertTriangle className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => onDeleteDeal(deal.id)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                        title="Delete Transaction"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -3481,20 +3450,27 @@ const PipelineView = ({
 
     {/* Kanban View */}
     {viewMode === 'kanban' && (
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 p-4">
         {kanbanStages.map(stage => {
           const stageDeals = filteredData.filter(d => d.stage === stage);
-          const stageColors: Record<string, string> = {
+          const stageColumnColors: Record<string, string> = {
             LOI: 'border-slate-300 bg-slate-50',
             Contract: 'border-blue-300 bg-blue-50',
             Escrow: 'border-amber-300 bg-amber-50',
             Option: 'border-orange-300 bg-orange-50',
             Closed: 'border-emerald-300 bg-emerald-50',
           };
+          const stageCardAccent: Record<string, string> = {
+            LOI: 'border-l-slate-400',
+            Contract: 'border-l-blue-400',
+            Escrow: 'border-l-amber-400',
+            Option: 'border-l-orange-400',
+            Closed: 'border-l-emerald-500',
+          };
           return (
             <div
               key={stage}
-              className={cn("rounded-xl border-2 border-dashed p-3 min-h-[200px] transition-colors", stageColors[stage], dragDealId && "border-indigo-400")}
+              className={cn("rounded-xl border-2 border-dashed p-3 min-h-[200px] transition-colors", stageColumnColors[stage], dragDealId && "border-indigo-400")}
               onDragOver={handleDragOver}
               onDrop={() => handleDrop(stage)}
             >
@@ -3503,28 +3479,85 @@ const PipelineView = ({
                 <span className="text-[10px] font-bold text-slate-400">{stageDeals.length}</span>
               </div>
               <div className="space-y-2">
-                {stageDeals.map(deal => (
-                  <div
-                    key={deal.id}
-                    draggable
-                    onDragStart={() => handleDragStart(deal.id)}
-                    onClick={() => onSelectDeal(deal.id)}
-                    className="bg-white rounded-lg border border-slate-200 p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-all group"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <GripVertical className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
-                      <DealHealthBadge health={getDealHealth(deal)} />
-                      <span className="text-xs font-bold text-slate-900 truncate">{deal.dealName}</span>
+                {stageDeals.map(deal => {
+                  const missingFields = getMissingTransactionFields(deal);
+                  const grossComm = deal.price * (deal.grossCommissionPercent / 100);
+                  return (
+                    <div
+                      key={deal.id}
+                      draggable
+                      onDragStart={() => handleDragStart(deal.id)}
+                      onClick={() => onSelectDeal(deal.id)}
+                      className={cn(
+                        "bg-white rounded-lg border border-slate-200 border-l-4 p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-all group",
+                        stageCardAccent[stage]
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-1 mb-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <GripVertical className="w-3 h-3 text-slate-300 group-hover:text-slate-500 shrink-0" />
+                          <DealHealthBadge health={getDealHealth(deal)} />
+                          <span className="text-xs font-bold text-slate-900 leading-tight">{deal.dealName}</span>
+                        </div>
+                        {missingFields.length > 0 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDrawerTransactions([deal]); }}
+                            className="shrink-0 p-0.5 text-amber-400 hover:text-amber-600 transition-colors"
+                            title={`Missing: ${missingFields.map(f => f.label).join(', ')}`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="ml-5 space-y-1">
+                        <p className="text-[10px] font-mono font-semibold text-slate-700">{formatCurrency(deal.price)}</p>
+                        <p className="text-[10px] font-mono text-emerald-600">Comm: {formatCurrency(grossComm)}</p>
+                        {deal.buyer?.name && <p className="text-[10px] text-slate-500 truncate">B: {deal.buyer.name}</p>}
+                        {deal.seller?.name && <p className="text-[10px] text-slate-500 truncate">S: {deal.seller.name}</p>}
+                        {deal.coeDate && <p className="text-[10px] text-slate-400">COE: {format(parseISO(deal.coeDate), 'MM/dd/yy')}</p>}
+                      </div>
                     </div>
-                    <p className="text-[10px] font-mono text-slate-500 ml-5">{formatCurrency(deal.price)}</p>
-                    {deal.coeDate && <p className="text-[10px] text-slate-400 ml-5 mt-1">COE: {format(parseISO(deal.coeDate), 'MM/dd/yy')}</p>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
         })}
       </div>
+    )}
+
+    {/* Floating Action Bar */}
+    {selectedIds.size > 0 && (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-full shadow-2xl z-50 animate-in slide-in-from-bottom-4 duration-200">
+        <span className="text-sm font-medium pr-1">{selectedIds.size} selected</span>
+        <div className="w-px h-4 bg-slate-600" />
+        <button
+          onClick={() => setDrawerTransactions(filteredData.filter(t => selectedIds.has(t.id)))}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-xs font-medium transition-colors"
+        >
+          <Edit3 className="w-3 h-3" />
+          Bulk Edit
+        </button>
+        <button
+          onClick={() => { onBatchDelete(Array.from(selectedIds)); setSelectedIds(new Set()); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs font-medium transition-colors"
+        >
+          <Trash2 className="w-3 h-3" />
+          Delete
+        </button>
+        <button onClick={() => setSelectedIds(new Set())} className="p-1.5 text-slate-400 hover:text-white transition-colors ml-1">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    )}
+
+    {/* Quick Edit Drawer */}
+    {drawerTransactions && onUpdateTransaction && (
+      <QuickEditTransactionDrawer
+        transactions={drawerTransactions}
+        onSave={(updated) => updated.forEach(t => onUpdateTransaction(t))}
+        onClose={() => setDrawerTransactions(null)}
+      />
     )}
     </div>
   );
@@ -5633,11 +5666,12 @@ export default function App() {
 
           {currentView === 'leads' && !selectedLeadId && (
             <div className="animate-in fade-in duration-500">
-              <LeadsView 
-                leads={activeLeads} 
+              <LeadsView
+                leads={activeLeads}
                 onSelectLead={handleSelectLead}
                 onDeleteLead={handleDeleteLead}
                 onBatchDelete={handleBatchDeleteLeads}
+                onUpdateLead={handleUpdateLead}
               />
             </div>
           )}
