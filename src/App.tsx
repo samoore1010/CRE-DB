@@ -49,7 +49,9 @@ import {
   Columns3,
   RotateCcw,
   Target,
-  Eye
+  Eye,
+  BookUser,
+  ChevronLeft
 } from 'lucide-react';
 import { 
   format, 
@@ -180,6 +182,26 @@ interface LeadReminder {
   date: string; // ISO Date
   description: string;
   completed: boolean;
+}
+
+interface ContactSource {
+  type: 'transaction-buyer' | 'transaction-seller' | 'transaction-party' | 'lead';
+  id: string;
+  label: string;
+  role?: string;
+  stage?: PipelineStage;
+  coeDate?: string;
+}
+
+interface DerivedContact {
+  id: string;
+  name: string;
+  entity?: string;
+  email?: string;
+  phone?: string;
+  primaryRole: string;
+  sources: ContactSource[];
+  lastActiveDate?: string;
 }
 
 interface Lead {
@@ -2336,16 +2358,23 @@ const LeadsView = ({
   );
 };
 
-const LeadDetailView = ({ 
-  lead, 
-  onSave, 
-  onClose 
-}: { 
-  lead: Lead, 
-  onSave: (l: Lead) => void, 
-  onClose: () => void 
+const LeadDetailView = ({
+  lead,
+  onSave,
+  onClose,
+  onSelectContact,
+}: {
+  lead: Lead,
+  onSave: (l: Lead) => void,
+  onClose: () => void,
+  onSelectContact?: (contactId: string) => void,
 }) => {
   const [formData, setFormData] = useState<Lead>(lead);
+  const goToContact = (name: string, email?: string) => {
+    if (!onSelectContact || !name.trim()) return;
+    const id = email?.trim().toLowerCase() || name.trim().toLowerCase();
+    onSelectContact(id);
+  };
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   
   // Timeline State
@@ -2592,7 +2621,9 @@ const LeadDetailView = ({
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
-                                <div className="font-medium text-slate-900">{contact.name}</div>
+                                {onSelectContact && contact.name
+                                  ? <button onClick={() => goToContact(contact.name, contact.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{contact.name}</button>
+                                  : <div className="font-medium text-slate-900">{contact.name}</div>}
                                 <div className="text-xs text-slate-500">{contact.role}</div>
                                 <div className="mt-2 space-y-1">
                                     {contact.phone && (
@@ -3899,18 +3930,366 @@ const PartiesSummary = ({ transaction }: { transaction: Transaction }) => (
   </div>
 );
 
-const TransactionDetailView = ({ 
-  transaction, 
-  onSave, 
-  onClose 
-}: { 
-  transaction: Transaction, 
-  onSave: (t: Transaction) => void, 
-  onClose: () => void 
+// Helper to derive all contacts from transactions + leads
+function deriveContacts(transactions: Transaction[], leads: Lead[]): DerivedContact[] {
+  const map = new Map<string, DerivedContact>();
+
+  const key = (name: string, email?: string) =>
+    (email?.trim().toLowerCase() || name.trim().toLowerCase());
+
+  const upsert = (
+    name: string,
+    entity: string | undefined,
+    email: string | undefined,
+    phone: string | undefined,
+    primaryRole: string,
+    source: ContactSource,
+    dateHint?: string
+  ) => {
+    if (!name.trim()) return;
+    const k = key(name, email);
+    if (map.has(k)) {
+      const existing = map.get(k)!;
+      existing.sources.push(source);
+      if (!existing.email && email) existing.email = email;
+      if (!existing.phone && phone) existing.phone = phone;
+      if (!existing.entity && entity) existing.entity = entity;
+      if (dateHint && (!existing.lastActiveDate || dateHint > existing.lastActiveDate)) {
+        existing.lastActiveDate = dateHint;
+      }
+    } else {
+      map.set(k, {
+        id: k,
+        name: name.trim(),
+        entity: entity || undefined,
+        email: email || undefined,
+        phone: phone || undefined,
+        primaryRole,
+        sources: [source],
+        lastActiveDate: dateHint,
+      });
+    }
+  };
+
+  for (const t of transactions) {
+    if (t.isDeleted) continue;
+    const dateHint = t.coeDate || t.psaDate || undefined;
+    if (t.buyer?.name) {
+      upsert(t.buyer.name, t.buyer.entity, t.buyer.email, t.buyer.phone, 'Buyer', {
+        type: 'transaction-buyer', id: t.id, label: t.dealName, role: 'Buyer', stage: t.stage, coeDate: t.coeDate
+      }, dateHint);
+    }
+    if (t.seller?.name) {
+      upsert(t.seller.name, t.seller.entity, t.seller.email, t.seller.phone, 'Seller', {
+        type: 'transaction-seller', id: t.id, label: t.dealName, role: 'Seller', stage: t.stage, coeDate: t.coeDate
+      }, dateHint);
+    }
+    for (const p of t.otherParties || []) {
+      if (p.name) {
+        upsert(p.name, p.entity, p.email, p.phone, p.role || 'Other', {
+          type: 'transaction-party', id: t.id, label: t.dealName, role: p.role, stage: t.stage, coeDate: t.coeDate
+        }, dateHint);
+      }
+    }
+  }
+
+  for (const l of leads) {
+    if (l.isDeleted) continue;
+    if (l.contactName) {
+      // Also pull in any lead contacts
+      const lc = l.contacts?.find(c => c.name === l.contactName);
+      upsert(l.contactName, undefined, lc?.email, lc?.phone, 'Lead Contact', {
+        type: 'lead', id: l.id, label: l.projectName || l.contactName, role: 'Lead Contact'
+      }, l.lastSpokeDate || undefined);
+    }
+    for (const c of l.contacts || []) {
+      if (c.name && c.name !== l.contactName) {
+        upsert(c.name, undefined, c.email, c.phone, c.role || 'Lead Contact', {
+          type: 'lead', id: l.id, label: l.projectName || l.contactName, role: c.role || 'Lead Contact'
+        }, l.lastSpokeDate || undefined);
+      }
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const ContactDetailView = ({
+  contact,
+  onBack,
+  onSelectDeal,
+  onSelectLead,
+}: {
+  contact: DerivedContact;
+  onBack: () => void;
+  onSelectDeal: (id: string) => void;
+  onSelectLead: (id: string) => void;
+}) => {
+  const txSources = contact.sources.filter(s => s.type !== 'lead');
+  const leadSources = contact.sources.filter(s => s.type === 'lead');
+  const initials = contact.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+  return (
+    <div className="animate-in fade-in duration-300 space-y-6">
+      {/* Back button */}
+      <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 transition-colors">
+        <ChevronLeft className="w-4 h-4" /> Back to Contacts
+      </button>
+
+      {/* Header card */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <div className="flex items-start gap-4">
+          <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xl shrink-0">
+            {initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold text-slate-900">{contact.name}</h1>
+            {contact.entity && <p className="text-slate-500 text-sm mt-0.5">{contact.entity}</p>}
+            <div className="flex flex-wrap gap-3 mt-3">
+              <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full">{contact.primaryRole}</span>
+              {contact.sources.length > 1 && (
+                <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs rounded-full">{contact.sources.length} associations</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Contact info */}
+        <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+            {contact.email
+              ? <a href={`mailto:${contact.email}`} className="text-sm text-indigo-600 hover:underline">{contact.email}</a>
+              : <span className="text-sm text-slate-400 italic">No email on file</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+            {contact.phone
+              ? <a href={`tel:${contact.phone}`} className="text-sm text-indigo-600 hover:underline">{contact.phone}</a>
+              : <span className="text-sm text-slate-400 italic">No phone on file</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Transactions */}
+      {txSources.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
+            <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-slate-400" /> Associated Deals ({txSources.length})
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {txSources.map((src, i) => (
+              <button
+                key={i}
+                onClick={() => onSelectDeal(src.id)}
+                className="w-full text-left px-6 py-4 hover:bg-slate-50 transition-colors flex items-center justify-between gap-4"
+              >
+                <div>
+                  <p className="font-medium text-slate-900">{src.label}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Role: <span className="font-medium">{src.role}</span>
+                    {src.coeDate && <> · COE: {format(parseISO(src.coeDate), 'MMM d, yyyy')}</>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {src.stage && (
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-full text-xs font-semibold",
+                      src.stage === 'Closed' ? "bg-emerald-100 text-emerald-700" :
+                      src.stage === 'Escrow' ? "bg-amber-100 text-amber-700" :
+                      src.stage === 'Contract' ? "bg-blue-100 text-blue-700" :
+                      "bg-slate-100 text-slate-600"
+                    )}>{src.stage}</span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Leads */}
+      {leadSources.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50">
+            <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+              <Users className="w-4 h-4 text-slate-400" /> Associated Leads ({leadSources.length})
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {leadSources.map((src, i) => (
+              <button
+                key={i}
+                onClick={() => onSelectLead(src.id)}
+                className="w-full text-left px-6 py-4 hover:bg-slate-50 transition-colors flex items-center justify-between gap-4"
+              >
+                <div>
+                  <p className="font-medium text-slate-900">{src.label}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Role: <span className="font-medium">{src.role}</span></p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-400" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ContactsView = ({
+  contacts,
+  selectedContactId,
+  onSelectContact,
+  onBack,
+  onSelectDeal,
+  onSelectLead,
+}: {
+  contacts: DerivedContact[];
+  selectedContactId: string | null;
+  onSelectContact: (id: string) => void;
+  onBack: () => void;
+  onSelectDeal: (id: string) => void;
+  onSelectLead: (id: string) => void;
+}) => {
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'Buyer' | 'Seller' | 'Other' | 'Lead Contact'>('all');
+
+  const selectedContact = contacts.find(c => c.id === selectedContactId);
+
+  if (selectedContact) {
+    return (
+      <ContactDetailView
+        contact={selectedContact}
+        onBack={onBack}
+        onSelectDeal={onSelectDeal}
+        onSelectLead={onSelectLead}
+      />
+    );
+  }
+
+  const ROLE_FILTERS = ['all', 'Buyer', 'Seller', 'Other', 'Lead Contact'] as const;
+
+  const filtered = contacts.filter(c => {
+    const matchesSearch = !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.email?.toLowerCase().includes(search.toLowerCase())) ||
+      (c.entity?.toLowerCase().includes(search.toLowerCase()));
+    const matchesRole = roleFilter === 'all' ||
+      (roleFilter === 'Other' ? !['Buyer','Seller','Lead Contact'].includes(c.primaryRole) : c.primaryRole === roleFilter);
+    return matchesSearch && matchesRole;
+  });
+
+  return (
+    <div className="animate-in fade-in duration-300 space-y-6">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-slate-900">Contacts</h1>
+        <p className="text-slate-500">All contacts across your pipeline and leads.</p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search contacts..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          />
+        </div>
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+          {ROLE_FILTERS.map(r => (
+            <button
+              key={r}
+              onClick={() => setRoleFilter(r)}
+              className={cn(
+                "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                roleFilter === r ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              {r === 'all' ? 'All' : r}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-slate-500 ml-auto">{filtered.length} contacts</span>
+      </div>
+
+      {/* Contact list */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+          <Users className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+          <p className="text-slate-500 font-medium">No contacts found</p>
+          <p className="text-slate-400 text-sm mt-1">Contacts are automatically pulled from your deals and leads.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="divide-y divide-slate-100">
+            {filtered.map(contact => {
+              const initials = contact.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+              const txCount = contact.sources.filter(s => s.type !== 'lead').length;
+              const leadCount = contact.sources.filter(s => s.type === 'lead').length;
+              return (
+                <button
+                  key={contact.id}
+                  onClick={() => onSelectContact(contact.id)}
+                  className="w-full text-left px-6 py-4 hover:bg-slate-50 transition-colors flex items-center gap-4"
+                >
+                  <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
+                    {initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-slate-900 truncate">{contact.name}</p>
+                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-xs rounded shrink-0">{contact.primaryRole}</span>
+                    </div>
+                    {contact.entity && <p className="text-xs text-slate-500 truncate">{contact.entity}</p>}
+                    <div className="flex items-center gap-3 mt-1">
+                      {contact.email && <p className="text-xs text-slate-400 truncate flex items-center gap-1"><Mail className="w-3 h-3" /> {contact.email}</p>}
+                      {contact.phone && <p className="text-xs text-slate-400 flex items-center gap-1"><Phone className="w-3 h-3" /> {contact.phone}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 text-right">
+                    <div className="text-xs text-slate-400">
+                      {txCount > 0 && <span className="block">{txCount} deal{txCount !== 1 ? 's' : ''}</span>}
+                      {leadCount > 0 && <span className="block">{leadCount} lead{leadCount !== 1 ? 's' : ''}</span>}
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TransactionDetailView = ({
+  transaction,
+  onSave,
+  onClose,
+  onSelectContact,
+}: {
+  transaction: Transaction,
+  onSave: (t: Transaction) => void,
+  onClose: () => void,
+  onSelectContact?: (contactId: string) => void,
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'parties' | 'timeline' | 'documents'>('overview');
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Transaction>(transaction);
+
+  // Helper to navigate to a party's contact page
+  const goToContact = (name: string, email?: string) => {
+    if (!onSelectContact || !name.trim()) return;
+    const id = email?.trim().toLowerCase() || name.trim().toLowerCase();
+    onSelectContact(id);
+  };
   
   // Timeline State
   const [newNote, setNewNote] = useState('');
@@ -4268,8 +4647,200 @@ const TransactionDetailView = ({
 
               {/* Widgets */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <PartiesSummary transaction={formData} />
-                <TimelineSummary transaction={formData} />
+                {/* Inline Parties Widget */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-slate-400" /> Parties
+                    </h3>
+                    {isEditing && (
+                      <button onClick={addOtherParty} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                        <Plus className="w-3 h-3" /> Add Party
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-4">
+                    {/* Buyer */}
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                      <p className="text-xs font-bold text-indigo-600 uppercase mb-2 flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">B</div> Buyer
+                      </p>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input type="text" value={formData.buyer.name} onChange={e => handlePartyChange('buyer', 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.buyer.entity || ''} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} placeholder="Entity" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="email" value={formData.buyer.email || ''} onChange={e => handlePartyChange('buyer', 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.buyer.phone || ''} onChange={e => handlePartyChange('buyer', 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
+                        </div>
+                      ) : (
+                        <div>
+                          {onSelectContact && formData.buyer.name
+                            ? <button onClick={() => goToContact(formData.buyer.name, formData.buyer.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.buyer.name}</button>
+                            : <p className="font-medium text-slate-900">{formData.buyer.name || 'Unknown'}</p>}
+                          {formData.buyer.entity && <p className="text-xs text-slate-500">{formData.buyer.entity}</p>}
+                          <div className="mt-1.5 space-y-1">
+                            {formData.buyer.email && <p className="text-xs text-slate-600 flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {formData.buyer.email}</p>}
+                            {formData.buyer.phone && <p className="text-xs text-slate-600 flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {formData.buyer.phone}</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {/* Seller */}
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                      <p className="text-xs font-bold text-emerald-600 uppercase mb-2 flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-xs">S</div> Seller
+                      </p>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input type="text" value={formData.seller.name} onChange={e => handlePartyChange('seller', 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.seller.entity || ''} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} placeholder="Entity" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="email" value={formData.seller.email || ''} onChange={e => handlePartyChange('seller', 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.seller.phone || ''} onChange={e => handlePartyChange('seller', 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
+                        </div>
+                      ) : (
+                        <div>
+                          {onSelectContact && formData.seller.name
+                            ? <button onClick={() => goToContact(formData.seller.name, formData.seller.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.seller.name}</button>
+                            : <p className="font-medium text-slate-900">{formData.seller.name || 'Unknown'}</p>}
+                          {formData.seller.entity && <p className="text-xs text-slate-500">{formData.seller.entity}</p>}
+                          <div className="mt-1.5 space-y-1">
+                            {formData.seller.email && <p className="text-xs text-slate-600 flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {formData.seller.email}</p>}
+                            {formData.seller.phone && <p className="text-xs text-slate-600 flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {formData.seller.phone}</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {/* Other Parties */}
+                    {(formData.otherParties.length > 0 || isEditing) && (
+                      <div className="pt-2 border-t border-slate-100">
+                        {formData.otherParties.length === 0 && isEditing ? (
+                          <p className="text-xs text-slate-400 italic">No other parties. Use "Add Party" above.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-xs text-slate-500 font-medium">Other Parties ({formData.otherParties.length})</p>
+                            {formData.otherParties.map((party, index) => (
+                              <div key={index} className="p-2 bg-slate-50 rounded border border-slate-100 relative group">
+                                {isEditing && (
+                                  <button onClick={() => removeOtherParty(index)} className="absolute top-1.5 right-1.5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                                {isEditing ? (
+                                  <div className="space-y-1.5">
+                                    <input type="text" value={party.role} onChange={e => updateOtherParty(index, 'role', e.target.value)} placeholder="Role" className="w-full p-1.5 border rounded text-xs font-medium" />
+                                    <input type="text" value={party.name} onChange={e => updateOtherParty(index, 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
+                                    <input type="email" value={party.email || ''} onChange={e => updateOtherParty(index, 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
+                                    <input type="text" value={party.phone || ''} onChange={e => updateOtherParty(index, 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <p className="text-xs font-bold text-slate-500 uppercase">{party.role || 'Unknown Role'}</p>
+                                    {onSelectContact && party.name
+                                      ? <button onClick={() => goToContact(party.name, party.email)} className="text-sm font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{party.name}</button>
+                                      : <p className="text-sm font-medium text-slate-900">{party.name}</p>}
+                                    {party.email && <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5"><Mail className="w-3 h-3 text-slate-400" /> {party.email}</p>}
+                                    {party.phone && <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5"><Phone className="w-3 h-3 text-slate-400" /> {party.phone}</p>}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Inline Timeline Widget */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-full flex flex-col">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-slate-400" /> Timeline
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {isEditing && (
+                        <button onClick={addCustomDate} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                          <Plus className="w-3 h-3" /> Add Date
+                        </button>
+                      )}
+                      {!isEditing && (() => {
+                        const exportDates = [
+                          { label: 'PSA Date', date: formData.psaDate, type: 'critical' },
+                          { label: 'Feasibility', date: formData.feasibilityDate, type: 'critical' },
+                          { label: 'COE', date: formData.coeDate, type: 'critical' },
+                          ...formData.customDates.map(d => ({ label: d.label, date: d.date, type: d.type || 'custom' }))
+                        ].filter(d => d.date);
+                        const handleExportICS = () => {
+                          const events = exportDates.map(d => ({
+                            title: `${d.label} - ${formData.dealName}`,
+                            start: parseISO(d.date!),
+                            description: `Deal: ${formData.dealName}`
+                          }));
+                          const ics = generateICS(events);
+                          const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+                          const url = URL.createObjectURL(blob);
+                          const link = document.createElement('a');
+                          link.href = url;
+                          link.setAttribute('download', `${formData.dealName.replace(/\s+/g, '_')}_timeline.ics`);
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        };
+                        return (
+                          <button onClick={handleExportICS} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                            <Download className="w-3 h-3" /> Export .ics
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div className="flex-1 relative pl-4 border-l-2 border-slate-100 space-y-5">
+                    <div className="relative">
+                      <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-slate-200 border-2 border-white ring-1 ring-slate-100"></div>
+                      <p className="text-xs text-slate-400 uppercase mb-1">PSA Signed</p>
+                      {isEditing ? (
+                        <input type="date" value={formData.psaDate} onChange={e => handleInputChange('psaDate', e.target.value)} className="p-1 border rounded text-sm" />
+                      ) : (
+                        <p className="font-medium text-slate-900">{formData.psaDate ? format(parseISO(formData.psaDate), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-amber-200 border-2 border-white ring-1 ring-amber-100"></div>
+                      <p className="text-xs text-slate-400 uppercase mb-1">Feasibility Period Ends</p>
+                      {isEditing ? (
+                        <input type="date" value={formData.feasibilityDate} onChange={e => handleInputChange('feasibilityDate', e.target.value)} className="p-1 border rounded text-sm" />
+                      ) : (
+                        <p className="font-medium text-slate-900">{formData.feasibilityDate ? format(parseISO(formData.feasibilityDate), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                      )}
+                    </div>
+                    {formData.customDates.map(date => (
+                      <div key={date.id} className="relative">
+                        <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-indigo-200 border-2 border-white ring-1 ring-indigo-100"></div>
+                        {isEditing ? (
+                          <div className="flex gap-2 items-center">
+                            <input type="text" value={date.label} onChange={e => updateCustomDate(date.id, 'label', e.target.value)} className="p-1 border rounded text-xs w-32" placeholder="Label" />
+                            <input type="date" value={date.date} onChange={e => updateCustomDate(date.id, 'date', e.target.value)} className="p-1 border rounded text-sm" />
+                            <button onClick={() => removeCustomDate(date.id)} className="text-red-500"><X className="w-3 h-3" /></button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-xs text-slate-400 uppercase mb-1">{date.label}</p>
+                            <p className="font-medium text-slate-900">{date.date ? format(parseISO(date.date), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                    <div className="relative">
+                      <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white ring-1 ring-emerald-200"></div>
+                      <p className="text-xs text-slate-400 uppercase mb-1">Close of Escrow</p>
+                      {isEditing ? (
+                        <input type="date" value={formData.coeDate} onChange={e => handleInputChange('coeDate', e.target.value)} className="p-1 border rounded text-sm" />
+                      ) : (
+                        <p className="font-medium text-slate-900">{formData.coeDate ? format(parseISO(formData.coeDate), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Reminders & Timeline */}
@@ -4454,7 +5025,15 @@ const TransactionDetailView = ({
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                          <input type="text" value={formData.buyer.entity} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                          <input type="text" value={formData.buyer.entity || ''} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                          <input type="email" value={formData.buyer.email || ''} onChange={e => handlePartyChange('buyer', 'email', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                          <input type="text" value={formData.buyer.phone || ''} onChange={e => handlePartyChange('buyer', 'phone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
                         </div>
                       </>
                     ) : (
@@ -4464,7 +5043,9 @@ const TransactionDetailView = ({
                             {formData.buyer.name.charAt(0) || 'B'}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900">{formData.buyer.name || 'Unknown Buyer'}</p>
+                            {onSelectContact && formData.buyer.name
+                              ? <button onClick={() => goToContact(formData.buyer.name, formData.buyer.email)} className="font-bold text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.buyer.name}</button>
+                              : <p className="font-bold text-slate-900">{formData.buyer.name || 'Unknown Buyer'}</p>}
                             <p className="text-xs text-slate-500">{formData.buyer.entity || 'No Entity Listed'}</p>
                           </div>
                         </div>
@@ -4491,7 +5072,15 @@ const TransactionDetailView = ({
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                          <input type="text" value={formData.seller.entity} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                          <input type="text" value={formData.seller.entity || ''} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                          <input type="email" value={formData.seller.email || ''} onChange={e => handlePartyChange('seller', 'email', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                          <input type="text" value={formData.seller.phone || ''} onChange={e => handlePartyChange('seller', 'phone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
                         </div>
                       </>
                     ) : (
@@ -4501,9 +5090,15 @@ const TransactionDetailView = ({
                             {formData.seller.name.charAt(0) || 'S'}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900">{formData.seller.name || 'Unknown Seller'}</p>
+                            {onSelectContact && formData.seller.name
+                              ? <button onClick={() => goToContact(formData.seller.name, formData.seller.email)} className="font-bold text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.seller.name}</button>
+                              : <p className="font-bold text-slate-900">{formData.seller.name || 'Unknown Seller'}</p>}
                             <p className="text-xs text-slate-500">{formData.seller.entity || 'No Entity Listed'}</p>
                           </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-sm text-slate-600 flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /> {formData.seller.email || '-'}</p>
+                          <p className="text-sm text-slate-600 flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /> {formData.seller.phone || '-'}</p>
                         </div>
                       </>
                     )}
@@ -4573,7 +5168,9 @@ const TransactionDetailView = ({
                         ) : (
                           <div>
                             <p className="text-xs font-bold text-slate-500 uppercase mb-1">{party.role || 'Unknown Role'}</p>
-                            <p className="font-medium text-slate-900">{party.name}</p>
+                            {onSelectContact && party.name
+                              ? <button onClick={() => goToContact(party.name, party.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{party.name}</button>
+                              : <p className="font-medium text-slate-900">{party.name}</p>}
                             {party.email && (
                               <p className="text-sm text-slate-600 flex items-center gap-2 mt-1">
                                 <Mail className="w-3 h-3 text-slate-400" /> {party.email}
@@ -4829,14 +5426,16 @@ const TransactionDetailView = ({
   );
 };
 
-const NewTransactionModal = ({ 
-  isOpen, 
-  onClose, 
-  onSave 
-}: { 
-  isOpen: boolean, 
-  onClose: () => void, 
-  onSave: (t: Transaction) => void 
+const NewTransactionModal = ({
+  isOpen,
+  onClose,
+  onSave,
+  contacts = [],
+}: {
+  isOpen: boolean,
+  onClose: () => void,
+  onSave: (t: Transaction) => void,
+  contacts?: DerivedContact[],
 }) => {
   const [formData, setFormData] = useState<Transaction>({
     id: '',
@@ -4871,6 +5470,29 @@ const NewTransactionModal = ({
   });
 
   const math = useCommissionMath(formData);
+
+  // Autocomplete state
+  const [buyerSuggestions, setBuyerSuggestions] = useState<DerivedContact[]>([]);
+  const [sellerSuggestions, setSellerSuggestions] = useState<DerivedContact[]>([]);
+
+  const getSuggestions = (value: string) =>
+    value.trim().length < 1 ? [] :
+    contacts.filter(c => c.name.toLowerCase().includes(value.toLowerCase())).slice(0, 5);
+
+  const applyContact = (role: 'buyer' | 'seller', contact: DerivedContact) => {
+    setFormData(prev => ({
+      ...prev,
+      [role]: {
+        ...prev[role],
+        name: contact.name,
+        entity: contact.entity || prev[role].entity,
+        email: contact.email || '',
+        phone: contact.phone || '',
+      }
+    }));
+    if (role === 'buyer') setBuyerSuggestions([]);
+    else setSellerSuggestions([]);
+  };
 
   if (!isOpen) return null;
 
@@ -5071,24 +5693,70 @@ const NewTransactionModal = ({
                       <h4 className="font-semibold text-slate-700 flex items-center gap-2">
                         <Users className="w-4 h-4" /> Buyer
                       </h4>
-                      <div>
+                      <div className="relative">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
-                        <input 
-                          type="text" 
-                          value={formData.buyer.name} 
-                          onChange={e => handlePartyChange('buyer', 'name', e.target.value)}
+                        <input
+                          type="text"
+                          value={formData.buyer.name}
+                          onChange={e => {
+                            handlePartyChange('buyer', 'name', e.target.value);
+                            setBuyerSuggestions(getSuggestions(e.target.value));
+                          }}
+                          onBlur={() => setTimeout(() => setBuyerSuggestions([]), 150)}
                           className="w-full p-2 border border-slate-300 rounded-lg text-sm"
                           placeholder="Buyer Name"
+                          autoComplete="off"
                         />
+                        {buyerSuggestions.length > 0 && (
+                          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                            {buyerSuggestions.map(c => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onMouseDown={() => applyContact('buyer', c)}
+                                className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2"
+                              >
+                                <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs shrink-0">
+                                  {c.name[0]}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-slate-900 truncate">{c.name}</p>
+                                  {c.entity && <p className="text-xs text-slate-500 truncate">{c.entity}</p>}
+                                  <p className="text-xs text-indigo-500">{c.primaryRole} · {c.sources.length} deal{c.sources.length !== 1 ? 's' : ''}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                        <input 
-                          type="text" 
-                          value={formData.buyer.entity || ''} 
+                        <input
+                          type="text"
+                          value={formData.buyer.entity || ''}
                           onChange={e => handlePartyChange('buyer', 'entity', e.target.value)}
                           className="w-full p-2 border border-slate-300 rounded-lg text-sm"
                           placeholder="LLC / Trust"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={formData.buyer.email || ''}
+                          onChange={e => handlePartyChange('buyer', 'email', e.target.value)}
+                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                          placeholder="buyer@email.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                        <input
+                          type="text"
+                          value={formData.buyer.phone || ''}
+                          onChange={e => handlePartyChange('buyer', 'phone', e.target.value)}
+                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                          placeholder="(555) 000-0000"
                         />
                       </div>
                     </div>
@@ -5098,24 +5766,70 @@ const NewTransactionModal = ({
                       <h4 className="font-semibold text-slate-700 flex items-center gap-2">
                         <Users className="w-4 h-4" /> Seller
                       </h4>
-                      <div>
+                      <div className="relative">
                         <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
-                        <input 
-                          type="text" 
-                          value={formData.seller.name} 
-                          onChange={e => handlePartyChange('seller', 'name', e.target.value)}
+                        <input
+                          type="text"
+                          value={formData.seller.name}
+                          onChange={e => {
+                            handlePartyChange('seller', 'name', e.target.value);
+                            setSellerSuggestions(getSuggestions(e.target.value));
+                          }}
+                          onBlur={() => setTimeout(() => setSellerSuggestions([]), 150)}
                           className="w-full p-2 border border-slate-300 rounded-lg text-sm"
                           placeholder="Seller Name"
+                          autoComplete="off"
                         />
+                        {sellerSuggestions.length > 0 && (
+                          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                            {sellerSuggestions.map(c => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onMouseDown={() => applyContact('seller', c)}
+                                className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2"
+                              >
+                                <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
+                                  {c.name[0]}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-slate-900 truncate">{c.name}</p>
+                                  {c.entity && <p className="text-xs text-slate-500 truncate">{c.entity}</p>}
+                                  <p className="text-xs text-indigo-500">{c.primaryRole} · {c.sources.length} deal{c.sources.length !== 1 ? 's' : ''}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                        <input 
-                          type="text" 
-                          value={formData.seller.entity || ''} 
+                        <input
+                          type="text"
+                          value={formData.seller.entity || ''}
                           onChange={e => handlePartyChange('seller', 'entity', e.target.value)}
                           className="w-full p-2 border border-slate-300 rounded-lg text-sm"
                           placeholder="LLC / Trust"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                        <input
+                          type="email"
+                          value={formData.seller.email || ''}
+                          onChange={e => handlePartyChange('seller', 'email', e.target.value)}
+                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                          placeholder="seller@email.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                        <input
+                          type="text"
+                          value={formData.seller.phone || ''}
+                          onChange={e => handlePartyChange('seller', 'phone', e.target.value)}
+                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
+                          placeholder="(555) 000-0000"
                         />
                       </div>
                     </div>
@@ -5495,9 +6209,10 @@ const ConfirmDialog = ({
 // --- Main App Component ---
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
   const [darkMode, setDarkMode] = useState(false);
@@ -5552,10 +6267,12 @@ export default function App() {
   const deletedTransactions = useMemo(() => transactions.filter(t => t.isDeleted), [transactions]);
   const activeLeads = useMemo(() => leads.filter(l => !l.isDeleted), [leads]);
   const deletedLeads = useMemo(() => leads.filter(l => l.isDeleted), [leads]);
+  const allContacts = useMemo(() => deriveContacts(activeTransactions, activeLeads), [activeTransactions, activeLeads]);
 
   const handleSelectDeal = (id: string) => {
     setSelectedDealId(id);
     setSelectedLeadId(null);
+    setSelectedContactId(null);
     setCurrentView('detail');
     setIsMobileMenuOpen(false);
   };
@@ -5563,7 +6280,14 @@ export default function App() {
   const handleSelectLead = (id: string) => {
     setSelectedLeadId(id);
     setSelectedDealId(null);
+    setSelectedContactId(null);
     setCurrentView('leads');
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleSelectContact = (contactId: string) => {
+    setSelectedContactId(contactId);
+    setCurrentView('contacts');
     setIsMobileMenuOpen(false);
   };
 
@@ -5743,12 +6467,13 @@ export default function App() {
     leads.find(l => l.id === selectedLeadId), 
   [leads, selectedLeadId]);
 
-  const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted', icon: any, label: string }) => (
+  const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts', icon: any, label: string }) => (
     <button
       onClick={() => {
         setCurrentView(view);
         setSelectedDealId(null);
         setSelectedLeadId(null);
+        setSelectedContactId(null);
         setIsMobileMenuOpen(false);
       }}
       className={cn(
@@ -5801,6 +6526,7 @@ export default function App() {
             <NavItem view="dashboard" icon={LayoutDashboard} label="Executive Dashboard" />
             <NavItem view="pipeline" icon={List} label="Pipeline Manager" />
             <NavItem view="leads" icon={Users} label="Leads Tracker" />
+            <NavItem view="contacts" icon={BookUser} label="Contacts" />
             <NavItem view="import" icon={Upload} label="Data Import" />
           </div>
           
@@ -5909,6 +6635,19 @@ export default function App() {
             </div>
           )}
 
+          {currentView === 'contacts' && (
+            <div className="animate-in fade-in duration-500">
+              <ContactsView
+                contacts={allContacts}
+                selectedContactId={selectedContactId}
+                onSelectContact={handleSelectContact}
+                onBack={() => setSelectedContactId(null)}
+                onSelectDeal={handleSelectDeal}
+                onSelectLead={handleSelectLead}
+              />
+            </div>
+          )}
+
           {currentView === 'import' && !selectedDealId && (
             <div className="animate-in fade-in duration-500">
                <DataManagementView 
@@ -5940,27 +6679,27 @@ export default function App() {
           )}
 
           {currentView === 'detail' && selectedTransaction && (
-            <TransactionDetailView 
-              transaction={selectedTransaction} 
+            <TransactionDetailView
+              transaction={selectedTransaction}
               onSave={handleUpdateTransaction}
-              onClose={() => {
+              onClose={() => { setSelectedDealId(null); }}
+              onSelectContact={(contactId) => {
+                setSelectedContactId(contactId);
                 setSelectedDealId(null);
-                // Return to previous view logic could be better, but defaulting to dashboard or pipeline based on where we came from is tricky without history. 
-                // For now, we just clear ID, which renders the 'currentView' list again.
+                setCurrentView('contacts');
               }}
             />
           )}
 
           {currentView === 'leads' && selectedLead && (
-            <LeadDetailView 
-              lead={selectedLead} 
-              onSave={(updatedLead) => {
-                handleUpdateLead(updatedLead);
-                // Optional: Close after save or keep open? Usually keep open or show success.
-                // For now let's keep it open.
-              }}
-              onClose={() => {
+            <LeadDetailView
+              lead={selectedLead}
+              onSave={(updatedLead) => { handleUpdateLead(updatedLead); }}
+              onClose={() => { setSelectedLeadId(null); }}
+              onSelectContact={(contactId) => {
+                setSelectedContactId(contactId);
                 setSelectedLeadId(null);
+                setCurrentView('contacts');
               }}
             />
           )}
@@ -5976,10 +6715,11 @@ export default function App() {
       )}
 
       {/* Modals */}
-      <NewTransactionModal 
-        isOpen={isNewDealModalOpen} 
-        onClose={() => setIsNewDealModalOpen(false)} 
-        onSave={handleCreateTransaction} 
+      <NewTransactionModal
+        isOpen={isNewDealModalOpen}
+        onClose={() => setIsNewDealModalOpen(false)}
+        onSave={handleCreateTransaction}
+        contacts={allContacts}
       />
 
       <ConfirmDialog 
