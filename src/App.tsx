@@ -233,6 +233,28 @@ interface Lead {
   convertedToTransactionId?: string;
 }
 
+type ActionType =
+  | 'transaction_update'
+  | 'transaction_create'
+  | 'transaction_delete'
+  | 'transaction_restore'
+  | 'lead_update'
+  | 'lead_create'
+  | 'lead_delete'
+  | 'lead_restore';
+
+interface ActionLogEntry {
+  id: string;
+  timestamp: string; // ISO
+  type: ActionType;
+  entityId: string;
+  entityType: 'transaction' | 'lead';
+  entityName: string;
+  description: string;
+  changedFields?: string[];
+  previousState?: Transaction | Lead;
+}
+
 interface Transaction {
   id: string;
   dealName: string;
@@ -1299,7 +1321,7 @@ const DataManagementView = ({
   );
 };
 
-const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddReminder, darkMode }: { transactions: Transaction[], leads: Lead[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, darkMode?: boolean }) => {
+const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, darkMode?: boolean }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showQuickReminder, setShowQuickReminder] = useState(false);
   const [quickReminderTarget, setQuickReminderTarget] = useState<{ id: string, type: 'transaction' | 'lead' }>({ id: '', type: 'transaction' });
@@ -1881,25 +1903,47 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddR
             </div>
           </div>
 
-          {/* Recent Activity Feed with Notes Search */}
+          {/* Recent Activity Feed */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
               <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider shrink-0">
-                <History className="w-4 h-4 text-slate-500" /> {notesSearch ? 'Notes Search' : 'Recent Developments'}
+                <History className="w-4 h-4 text-slate-500" /> {(actionLog && actionLog.length > 0) ? 'Recent Actions' : (notesSearch ? 'Notes Search' : 'Recent Developments')}
               </h2>
-              <div className="relative w-full max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search all notes..."
-                  value={notesSearch}
-                  onChange={(e) => setNotesSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
+              {!(actionLog && actionLog.length > 0) && (
+                <div className="relative w-full max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search all notes..."
+                    value={notesSearch}
+                    onChange={(e) => setNotesSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+              )}
             </div>
             <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-              {displayedActivity.length === 0 ? (
+              {actionLog && actionLog.length > 0 ? (
+                actionLog.slice(0, 8).map((entry) => (
+                  <div
+                    key={entry.id}
+                    onClick={() => entry.entityType === 'lead' ? onSelectLead(entry.entityId) : onSelectDeal(entry.entityId)}
+                    className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tighter", ACTION_COLORS[entry.type])}>{ACTION_LABELS[entry.type]}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{format(parseISO(entry.timestamp), 'MMM d, h:mm a')}</span>
+                      </div>
+                      <div className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tighter", entry.entityType === 'lead' ? "bg-purple-100 text-purple-700" : "bg-indigo-100 text-indigo-700")}>
+                        {entry.entityType === 'lead' ? 'Lead' : 'Deal'}
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-700 line-clamp-2 group-hover:text-slate-900 transition-colors font-medium">{entry.entityName}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{entry.description}</p>
+                  </div>
+                ))
+              ) : displayedActivity.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 italic text-sm">{notesSearch ? 'No notes matching your search.' : 'No recent activity logged.'}</div>
               ) : (
                 displayedActivity.map((act, i) => (
@@ -2068,6 +2112,7 @@ const LeadsView = ({
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [incompleteFilter, setIncompleteFilter] = useState(false);
   const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
+  const [leadsPage, setLeadsPage] = useState(1);
 
   const toggleTypeFilter = (type: string) => {
     const newSet = new Set(selectedTypes);
@@ -2125,6 +2170,12 @@ const LeadsView = ({
 
     return data;
   }, [leads, search, sortConfig, selectedTypes, incompleteFilter]);
+
+  useEffect(() => { setLeadsPage(1); }, [search, selectedTypes, incompleteFilter, sortConfig]);
+
+  const leadsTotalPages = Math.max(1, Math.ceil(filteredLeads.length / ITEMS_PER_PAGE));
+  const leadsSafePage = Math.min(leadsPage, leadsTotalPages);
+  const pagedLeads = filteredLeads.slice((leadsSafePage - 1) * ITEMS_PER_PAGE, leadsSafePage * ITEMS_PER_PAGE);
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds);
@@ -2251,7 +2302,7 @@ const LeadsView = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredLeads.map((lead) => {
+              {pagedLeads.map((lead) => {
                 const missingFields = getMissingLeadFields(lead);
                 return (
                     <tr
@@ -2323,6 +2374,11 @@ const LeadsView = ({
               })}
             </tbody>
           </table>
+          {leadsTotalPages > 1 && (
+            <div className="border-t border-slate-200 px-4 py-2">
+              <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
+            </div>
+          )}
         </div>
         {filteredLeads.length === 0 && (
           <div className="p-12 text-center text-slate-500">
@@ -3365,6 +3421,7 @@ const PipelineView = ({
   const [dragDealId, setDragDealId] = useState<string | null>(null);
   const [incompleteFilter, setIncompleteFilter] = useState(false);
   const [drawerTransactions, setDrawerTransactions] = useState<Transaction[] | null>(null);
+  const [pipelinePage, setPipelinePage] = useState(1);
 
   const toggleStageFilter = (stage: PipelineStage) => {
     const newSet = new Set(selectedStages);
@@ -3447,6 +3504,12 @@ const PipelineView = ({
 
     return data;
   }, [transactions, search, sortConfig, selectedStages, filterYear, incompleteFilter]);
+
+  useEffect(() => { setPipelinePage(1); }, [search, selectedStages, filterYear, incompleteFilter, sortConfig]);
+
+  const pipelineTotalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE));
+  const pipelineSafePage = Math.min(pipelinePage, pipelineTotalPages);
+  const pagedData = filteredData.slice((pipelineSafePage - 1) * ITEMS_PER_PAGE, pipelineSafePage * ITEMS_PER_PAGE);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -3638,7 +3701,7 @@ const PipelineView = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredData.map((deal) => {
+            {pagedData.map((deal) => {
               const grossComm = deal.price * (deal.grossCommissionPercent / 100);
               const missingFields = getMissingTransactionFields(deal);
               return (
@@ -3715,6 +3778,11 @@ const PipelineView = ({
             );
           })()}
         </table>
+        {pipelineTotalPages > 1 && (
+          <div className="border-t border-slate-200 px-4 py-2">
+            <Pagination page={pipelineSafePage} totalPages={pipelineTotalPages} onPage={setPipelinePage} />
+          </div>
+        )}
       </div>
       )}
       {filteredData.length === 0 && viewMode === 'table' && (
@@ -6167,16 +6235,232 @@ const ConfirmDialog = ({
   );
 };
 
+const ACTION_LABELS: Record<ActionType, string> = {
+  transaction_update: 'Deal Updated',
+  transaction_create: 'Deal Created',
+  transaction_delete: 'Deal Deleted',
+  transaction_restore: 'Deal Restored',
+  lead_update: 'Lead Updated',
+  lead_create: 'Lead Created',
+  lead_delete: 'Lead Deleted',
+  lead_restore: 'Lead Restored',
+};
+
+const ACTION_COLORS: Record<ActionType, string> = {
+  transaction_update: 'bg-indigo-100 text-indigo-700',
+  transaction_create: 'bg-emerald-100 text-emerald-700',
+  transaction_delete: 'bg-red-100 text-red-700',
+  transaction_restore: 'bg-amber-100 text-amber-700',
+  lead_update: 'bg-purple-100 text-purple-700',
+  lead_create: 'bg-teal-100 text-teal-700',
+  lead_delete: 'bg-red-100 text-red-600',
+  lead_restore: 'bg-amber-100 text-amber-600',
+};
+
+const ITEMS_PER_PAGE = 20;
+const ACTION_RETENTION_DAYS = 10;
+
+const Pagination = ({
+  page, totalPages, onPage
+}: { page: number; totalPages: number; onPage: (p: number) => void }) => {
+  if (totalPages <= 1) return null;
+  const pages: (number | '...')[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push('...');
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+  }
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
+      <p className="text-xs text-slate-500">Page {page} of {totalPages}</p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onPage(page - 1)} disabled={page === 1} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        {pages.map((p, i) =>
+          p === '...'
+            ? <span key={`ellipsis-${i}`} className="px-1.5 text-slate-400 text-sm">…</span>
+            : <button key={p} onClick={() => onPage(p as number)} className={cn("w-8 h-8 rounded text-sm font-medium transition-colors", page === p ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-200")}>{p}</button>
+        )}
+        <button onClick={() => onPage(page + 1)} disabled={page === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const RecentActionsView = ({
+  actions,
+  onSelectDeal,
+  onSelectLead,
+  onUndo,
+}: {
+  actions: ActionLogEntry[];
+  onSelectDeal: (id: string) => void;
+  onSelectLead: (id: string) => void;
+  onUndo: (entry: ActionLogEntry) => void;
+}) => {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'transaction' | 'lead'>('all');
+
+  const cutoff = new Date(Date.now() - ACTION_RETENTION_DAYS * 86400_000);
+
+  const filtered = useMemo(() => {
+    let list = actions.filter(a => new Date(a.timestamp) >= cutoff);
+    if (typeFilter !== 'all') list = list.filter(a => a.entityType === typeFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(a =>
+        a.entityName.toLowerCase().includes(q) ||
+        a.description.toLowerCase().includes(q) ||
+        ACTION_LABELS[a.type].toLowerCase().includes(q)
+      );
+    }
+    return list; // already newest-first from how we prepend
+  }, [actions, typeFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
+
+  // Reset to page 1 when filter/search changes
+  React.useEffect(() => { setPage(1); }, [search, typeFilter]);
+
+  const canUndo = (a: ActionLogEntry) =>
+    (a.type === 'transaction_update' || a.type === 'lead_update' ||
+     a.type === 'transaction_delete' || a.type === 'lead_delete') &&
+    !!a.previousState;
+
+  return (
+    <div className="animate-in fade-in duration-300 space-y-6">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-slate-900">Recent Actions</h1>
+        <p className="text-slate-500">All changes from the last {ACTION_RETENTION_DAYS} days. You can review or undo updates and deletes.</p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search actions..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          />
+        </div>
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+          {(['all', 'transaction', 'lead'] as const).map(t => (
+            <button key={t} onClick={() => setTypeFilter(t)} className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors capitalize", typeFilter === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+              {t === 'all' ? 'All' : t === 'transaction' ? 'Deals' : 'Leads'}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-slate-500 ml-auto">{filtered.length} action{filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {pageItems.length === 0 ? (
+          <div className="p-12 text-center">
+            <History className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500 font-medium">{filtered.length === 0 && actions.filter(a => new Date(a.timestamp) >= cutoff).length === 0 ? 'No actions yet.' : 'No actions match your filters.'}</p>
+          </div>
+        ) : (
+          <>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Action</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Details</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider w-28">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {pageItems.map(entry => (
+                  <tr key={entry.id} className="hover:bg-slate-50 transition-colors group">
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-500 text-xs">
+                      <div>{format(parseISO(entry.timestamp), 'MMM d, yyyy')}</div>
+                      <div className="text-slate-400">{format(parseISO(entry.timestamp), 'h:mm a')}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap", ACTION_COLORS[entry.type])}>
+                        {ACTION_LABELS[entry.type]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => entry.entityType === 'transaction' ? onSelectDeal(entry.entityId) : onSelectLead(entry.entityId)}
+                        className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left"
+                      >
+                        {entry.entityName}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 text-xs max-w-xs">
+                      <p className="truncate">{entry.description}</p>
+                      {entry.changedFields && entry.changedFields.length > 0 && (
+                        <p className="text-slate-400 truncate">Fields: {entry.changedFields.join(', ')}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => entry.entityType === 'transaction' ? onSelectDeal(entry.entityId) : onSelectLead(entry.entityId)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="View"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {canUndo(entry) && (
+                          <button
+                            onClick={() => onUndo(entry)}
+                            className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                            title="Undo"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <Pagination page={safePage} totalPages={totalPages} onPage={setPage} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- Main App Component ---
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
   const [darkMode, setDarkMode] = useState(false);
+  const [actionLog, setActionLog] = useState<ActionLogEntry[]>([]);
+
+  const logAction = (entry: Omit<ActionLogEntry, 'id' | 'timestamp'>) => {
+    setActionLog(prev => [{
+      ...entry,
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+    }, ...prev]);
+  };
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -6253,12 +6537,30 @@ export default function App() {
   };
 
   const handleUpdateTransaction = (updated: Transaction) => {
-    setTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
+    setTransactions(prev => {
+      const old = prev.find(t => t.id === updated.id);
+      logAction({
+        type: 'transaction_update',
+        entityId: updated.id,
+        entityType: 'transaction',
+        entityName: updated.dealName,
+        description: `Updated transaction "${updated.dealName}"`,
+        previousState: old,
+      });
+      return prev.map(t => t.id === updated.id ? updated : t);
+    });
     fetch(`/api/transactions/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
   };
 
   const handleCreateTransaction = (newDeal: Transaction) => {
     setTransactions(prev => [...prev, newDeal]);
+    logAction({
+      type: 'transaction_create',
+      entityId: newDeal.id,
+      entityType: 'transaction',
+      entityName: newDeal.dealName,
+      description: `Created transaction "${newDeal.dealName}"`,
+    });
     setIsNewDealModalOpen(false);
     setSelectedDealId(newDeal.id);
     setCurrentView('detail');
@@ -6272,7 +6574,18 @@ export default function App() {
   };
 
   const handleUpdateLead = (updated: Lead) => {
-    setLeads(prev => prev.map(l => l.id === updated.id ? updated : l));
+    setLeads(prev => {
+      const old = prev.find(l => l.id === updated.id);
+      logAction({
+        type: 'lead_update',
+        entityId: updated.id,
+        entityType: 'lead',
+        entityName: updated.projectName,
+        description: `Updated lead "${updated.projectName}"`,
+        previousState: old,
+      });
+      return prev.map(l => l.id === updated.id ? updated : l);
+    });
     fetch(`/api/leads/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
   };
 
@@ -6322,6 +6635,7 @@ export default function App() {
     setTransactions(prev => prev.map(t => {
       if (t.id !== id) return t;
       const restored = { ...t, isDeleted: false, deletedAt: undefined };
+      logAction({ type: 'transaction_restore', entityId: id, entityType: 'transaction', entityName: t.dealName, description: `Restored transaction "${t.dealName}"` });
       fetch(`/api/transactions/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) }).catch(console.error);
       return restored;
     }));
@@ -6340,6 +6654,7 @@ export default function App() {
     setLeads(prev => prev.map(l => {
       if (l.id !== id) return l;
       const restored = { ...l, isDeleted: false, deletedAt: undefined };
+      logAction({ type: 'lead_restore', entityId: id, entityType: 'lead', entityName: l.projectName, description: `Restored lead "${l.projectName}"` });
       fetch(`/api/leads/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) }).catch(console.error);
       return restored;
     }));
@@ -6385,9 +6700,11 @@ export default function App() {
           }
         } else {
           // Soft delete (single or batch)
-          setTransactions(prev => prev.map(t =>
-            ids.includes(t.id) ? { ...t, isDeleted: true, deletedAt: new Date().toISOString() } : t
-          ));
+          setTransactions(prev => {
+            const toDelete = prev.filter(t => ids.includes(t.id));
+            toDelete.forEach(t => logAction({ type: 'transaction_delete', entityId: t.id, entityType: 'transaction', entityName: t.dealName, description: `Moved "${t.dealName}" to trash`, previousState: t }));
+            return prev.map(t => ids.includes(t.id) ? { ...t, isDeleted: true, deletedAt: new Date().toISOString() } : t);
+          });
           fetch('/api/transactions/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
 
           // If the currently viewed deal is deleted, go back to pipeline
@@ -6406,9 +6723,11 @@ export default function App() {
           }
         } else {
           // Soft delete leads
-          setLeads(prev => prev.map(l =>
-            ids.includes(l.id) ? { ...l, isDeleted: true, deletedAt: new Date().toISOString() } : l
-          ));
+          setLeads(prev => {
+            const toDelete = prev.filter(l => ids.includes(l.id));
+            toDelete.forEach(l => logAction({ type: 'lead_delete', entityId: l.id, entityType: 'lead', entityName: l.projectName, description: `Moved lead "${l.projectName}" to trash`, previousState: l }));
+            return prev.map(l => ids.includes(l.id) ? { ...l, isDeleted: true, deletedAt: new Date().toISOString() } : l);
+          });
           fetch('/api/leads/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
           if (selectedLeadId && ids.includes(selectedLeadId)) {
             setSelectedLeadId(null);
@@ -6428,7 +6747,30 @@ export default function App() {
     leads.find(l => l.id === selectedLeadId), 
   [leads, selectedLeadId]);
 
-  const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts', icon: any, label: string }) => (
+  const handleUndo = (entry: ActionLogEntry) => {
+    if (!entry.previousState) return;
+    if (entry.entityType === 'transaction') {
+      const prev = entry.previousState as Transaction;
+      if (entry.type === 'transaction_delete') {
+        setTransactions(t => t.map(x => x.id === prev.id ? { ...x, isDeleted: false, deletedAt: undefined } : x));
+      } else if (entry.type === 'transaction_update') {
+        setTransactions(t => t.map(x => x.id === prev.id ? prev : x));
+        fetch(`/api/transactions/${prev.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prev) }).catch(console.error);
+      }
+    } else {
+      const prev = entry.previousState as Lead;
+      if (entry.type === 'lead_delete') {
+        setLeads(l => l.map(x => x.id === prev.id ? { ...x, isDeleted: false, deletedAt: undefined } : x));
+      } else if (entry.type === 'lead_update') {
+        setLeads(l => l.map(x => x.id === prev.id ? prev : x));
+        fetch(`/api/leads/${prev.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prev) }).catch(console.error);
+      }
+    }
+    // Remove the undone entry from the log
+    setActionLog(log => log.filter(e => e.id !== entry.id));
+  };
+
+  const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions', icon: any, label: string }) => (
     <button
       onClick={() => {
         setCurrentView(view);
@@ -6508,7 +6850,8 @@ export default function App() {
             </button>
           </div>
 
-          <div className="mt-auto pt-4 border-t border-slate-100">
+          <div className="mt-auto pt-4 border-t border-slate-100 space-y-1">
+             <NavItem view="recent-actions" icon={History} label="Recent Actions" />
              <NavItem view="deleted" icon={Trash2} label="Recently Deleted" />
           </div>
         </div>
@@ -6560,6 +6903,7 @@ export default function App() {
               <DashboardView
                 transactions={activeTransactions}
                 leads={leads}
+                actionLog={actionLog}
                 onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
                 onAddReminder={handleAddReminder}
@@ -6619,6 +6963,17 @@ export default function App() {
                  onImport={handleImportTransactions} 
                  onImportLeads={handleImportLeads}
                />
+            </div>
+          )}
+
+          {currentView === 'recent-actions' && !selectedDealId && (
+            <div className="animate-in fade-in duration-500">
+              <RecentActionsView
+                actions={actionLog}
+                onSelectDeal={handleSelectDeal}
+                onSelectLead={handleSelectLead}
+                onUndo={handleUndo}
+              />
             </div>
           )}
 
