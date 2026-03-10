@@ -4268,8 +4268,194 @@ const TransactionDetailView = ({
 
               {/* Widgets */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <PartiesSummary transaction={formData} />
-                <TimelineSummary transaction={formData} />
+                {/* Inline Parties Widget */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-slate-400" /> Parties
+                    </h3>
+                    {isEditing && (
+                      <button onClick={addOtherParty} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                        <Plus className="w-3 h-3" /> Add Party
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-4">
+                    {/* Buyer */}
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                      <p className="text-xs font-bold text-indigo-600 uppercase mb-2 flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">B</div> Buyer
+                      </p>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input type="text" value={formData.buyer.name} onChange={e => handlePartyChange('buyer', 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.buyer.entity || ''} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} placeholder="Entity" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="email" value={formData.buyer.email || ''} onChange={e => handlePartyChange('buyer', 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.buyer.phone || ''} onChange={e => handlePartyChange('buyer', 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="font-medium text-slate-900">{formData.buyer.name || 'Unknown'}</p>
+                          {formData.buyer.entity && <p className="text-xs text-slate-500">{formData.buyer.entity}</p>}
+                          <div className="mt-1.5 space-y-1">
+                            {formData.buyer.email && <p className="text-xs text-slate-600 flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {formData.buyer.email}</p>}
+                            {formData.buyer.phone && <p className="text-xs text-slate-600 flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {formData.buyer.phone}</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {/* Seller */}
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                      <p className="text-xs font-bold text-emerald-600 uppercase mb-2 flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-xs">S</div> Seller
+                      </p>
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <input type="text" value={formData.seller.name} onChange={e => handlePartyChange('seller', 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.seller.entity || ''} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} placeholder="Entity" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="email" value={formData.seller.email || ''} onChange={e => handlePartyChange('seller', 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
+                          <input type="text" value={formData.seller.phone || ''} onChange={e => handlePartyChange('seller', 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="font-medium text-slate-900">{formData.seller.name || 'Unknown'}</p>
+                          {formData.seller.entity && <p className="text-xs text-slate-500">{formData.seller.entity}</p>}
+                          <div className="mt-1.5 space-y-1">
+                            {formData.seller.email && <p className="text-xs text-slate-600 flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {formData.seller.email}</p>}
+                            {formData.seller.phone && <p className="text-xs text-slate-600 flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {formData.seller.phone}</p>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {/* Other Parties */}
+                    {(formData.otherParties.length > 0 || isEditing) && (
+                      <div className="pt-2 border-t border-slate-100">
+                        {formData.otherParties.length === 0 && isEditing ? (
+                          <p className="text-xs text-slate-400 italic">No other parties. Use "Add Party" above.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-xs text-slate-500 font-medium">Other Parties ({formData.otherParties.length})</p>
+                            {formData.otherParties.map((party, index) => (
+                              <div key={index} className="p-2 bg-slate-50 rounded border border-slate-100 relative group">
+                                {isEditing && (
+                                  <button onClick={() => removeOtherParty(index)} className="absolute top-1.5 right-1.5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                                {isEditing ? (
+                                  <div className="space-y-1.5">
+                                    <input type="text" value={party.role} onChange={e => updateOtherParty(index, 'role', e.target.value)} placeholder="Role" className="w-full p-1.5 border rounded text-xs font-medium" />
+                                    <input type="text" value={party.name} onChange={e => updateOtherParty(index, 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
+                                    <input type="email" value={party.email || ''} onChange={e => updateOtherParty(index, 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
+                                    <input type="text" value={party.phone || ''} onChange={e => updateOtherParty(index, 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <p className="text-xs font-bold text-slate-500 uppercase">{party.role || 'Unknown Role'}</p>
+                                    <p className="text-sm font-medium text-slate-900">{party.name}</p>
+                                    {party.email && <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5"><Mail className="w-3 h-3 text-slate-400" /> {party.email}</p>}
+                                    {party.phone && <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5"><Phone className="w-3 h-3 text-slate-400" /> {party.phone}</p>}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Inline Timeline Widget */}
+                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-full flex flex-col">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-slate-400" /> Timeline
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {isEditing && (
+                        <button onClick={addCustomDate} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                          <Plus className="w-3 h-3" /> Add Date
+                        </button>
+                      )}
+                      {!isEditing && (() => {
+                        const exportDates = [
+                          { label: 'PSA Date', date: formData.psaDate, type: 'critical' },
+                          { label: 'Feasibility', date: formData.feasibilityDate, type: 'critical' },
+                          { label: 'COE', date: formData.coeDate, type: 'critical' },
+                          ...formData.customDates.map(d => ({ label: d.label, date: d.date, type: d.type || 'custom' }))
+                        ].filter(d => d.date);
+                        const handleExportICS = () => {
+                          const events = exportDates.map(d => ({
+                            title: `${d.label} - ${formData.dealName}`,
+                            start: parseISO(d.date!),
+                            description: `Deal: ${formData.dealName}`
+                          }));
+                          const ics = generateICS(events);
+                          const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+                          const url = URL.createObjectURL(blob);
+                          const link = document.createElement('a');
+                          link.href = url;
+                          link.setAttribute('download', `${formData.dealName.replace(/\s+/g, '_')}_timeline.ics`);
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        };
+                        return (
+                          <button onClick={handleExportICS} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                            <Download className="w-3 h-3" /> Export .ics
+                          </button>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div className="flex-1 relative pl-4 border-l-2 border-slate-100 space-y-5">
+                    <div className="relative">
+                      <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-slate-200 border-2 border-white ring-1 ring-slate-100"></div>
+                      <p className="text-xs text-slate-400 uppercase mb-1">PSA Signed</p>
+                      {isEditing ? (
+                        <input type="date" value={formData.psaDate} onChange={e => handleInputChange('psaDate', e.target.value)} className="p-1 border rounded text-sm" />
+                      ) : (
+                        <p className="font-medium text-slate-900">{formData.psaDate ? format(parseISO(formData.psaDate), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-amber-200 border-2 border-white ring-1 ring-amber-100"></div>
+                      <p className="text-xs text-slate-400 uppercase mb-1">Feasibility Period Ends</p>
+                      {isEditing ? (
+                        <input type="date" value={formData.feasibilityDate} onChange={e => handleInputChange('feasibilityDate', e.target.value)} className="p-1 border rounded text-sm" />
+                      ) : (
+                        <p className="font-medium text-slate-900">{formData.feasibilityDate ? format(parseISO(formData.feasibilityDate), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                      )}
+                    </div>
+                    {formData.customDates.map(date => (
+                      <div key={date.id} className="relative">
+                        <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-indigo-200 border-2 border-white ring-1 ring-indigo-100"></div>
+                        {isEditing ? (
+                          <div className="flex gap-2 items-center">
+                            <input type="text" value={date.label} onChange={e => updateCustomDate(date.id, 'label', e.target.value)} className="p-1 border rounded text-xs w-32" placeholder="Label" />
+                            <input type="date" value={date.date} onChange={e => updateCustomDate(date.id, 'date', e.target.value)} className="p-1 border rounded text-sm" />
+                            <button onClick={() => removeCustomDate(date.id)} className="text-red-500"><X className="w-3 h-3" /></button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-xs text-slate-400 uppercase mb-1">{date.label}</p>
+                            <p className="font-medium text-slate-900">{date.date ? format(parseISO(date.date), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                    <div className="relative">
+                      <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-white ring-1 ring-emerald-200"></div>
+                      <p className="text-xs text-slate-400 uppercase mb-1">Close of Escrow</p>
+                      {isEditing ? (
+                        <input type="date" value={formData.coeDate} onChange={e => handleInputChange('coeDate', e.target.value)} className="p-1 border rounded text-sm" />
+                      ) : (
+                        <p className="font-medium text-slate-900">{formData.coeDate ? format(parseISO(formData.coeDate), 'MMMM d, yyyy') : <span className="text-slate-400 italic text-sm">Pending</span>}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Reminders & Timeline */}
@@ -4454,7 +4640,15 @@ const TransactionDetailView = ({
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                          <input type="text" value={formData.buyer.entity} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                          <input type="text" value={formData.buyer.entity || ''} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                          <input type="email" value={formData.buyer.email || ''} onChange={e => handlePartyChange('buyer', 'email', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                          <input type="text" value={formData.buyer.phone || ''} onChange={e => handlePartyChange('buyer', 'phone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
                         </div>
                       </>
                     ) : (
@@ -4491,7 +4685,15 @@ const TransactionDetailView = ({
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                          <input type="text" value={formData.seller.entity} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                          <input type="text" value={formData.seller.entity || ''} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                          <input type="email" value={formData.seller.email || ''} onChange={e => handlePartyChange('seller', 'email', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                          <input type="text" value={formData.seller.phone || ''} onChange={e => handlePartyChange('seller', 'phone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
                         </div>
                       </>
                     ) : (
@@ -4504,6 +4706,10 @@ const TransactionDetailView = ({
                             <p className="font-bold text-slate-900">{formData.seller.name || 'Unknown Seller'}</p>
                             <p className="text-xs text-slate-500">{formData.seller.entity || 'No Entity Listed'}</p>
                           </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-sm text-slate-600 flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /> {formData.seller.email || '-'}</p>
+                          <p className="text-sm text-slate-600 flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /> {formData.seller.phone || '-'}</p>
                         </div>
                       </>
                     )}
