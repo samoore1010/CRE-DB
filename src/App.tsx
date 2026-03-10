@@ -139,12 +139,24 @@ function generateICS(events: { title: string, start: Date, description?: string 
 type PipelineStage = 'LOI' | 'Contract' | 'Escrow' | 'Closed' | 'Option';
 
 interface Party {
+  id?: string;
   role: string;
+  side?: 'buyer' | 'seller' | 'third-party';
   name: string;
   entity?: string;
   email?: string;
   phone?: string;
 }
+
+const mkParty = (role: string, side?: Party['side']): Party => ({
+  id: Math.random().toString(36).substr(2, 9),
+  role,
+  side,
+  name: '',
+  entity: '',
+  email: '',
+  phone: '',
+});
 
 interface Note {
   id: string;
@@ -219,6 +231,28 @@ interface Lead {
   contacts?: LeadContact[];
   reminders?: LeadReminder[];
   convertedToTransactionId?: string;
+}
+
+type ActionType =
+  | 'transaction_update'
+  | 'transaction_create'
+  | 'transaction_delete'
+  | 'transaction_restore'
+  | 'lead_update'
+  | 'lead_create'
+  | 'lead_delete'
+  | 'lead_restore';
+
+interface ActionLogEntry {
+  id: string;
+  timestamp: string; // ISO
+  type: ActionType;
+  entityId: string;
+  entityType: 'transaction' | 'lead';
+  entityName: string;
+  description: string;
+  changedFields?: string[];
+  previousState?: Transaction | Lead;
 }
 
 interface Transaction {
@@ -873,7 +907,7 @@ function processTransactionCSV(data: any[]): Transaction[] {
       isDeleted: false
     };
     if (row['Buyer:2']) {
-      t.otherParties.push({ role: 'Buyer 2', name: row['Buyer:2'], entity: '' });
+      t.otherParties.push({ id: Math.random().toString(36).substr(2, 9), role: 'Co-Buyer', side: 'buyer', name: row['Buyer:2'], entity: '' });
     }
     newTransactions.push(t);
   });
@@ -1287,7 +1321,7 @@ const DataManagementView = ({
   );
 };
 
-const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddReminder, darkMode }: { transactions: Transaction[], leads: Lead[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, darkMode?: boolean }) => {
+const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, darkMode?: boolean }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showQuickReminder, setShowQuickReminder] = useState(false);
   const [quickReminderTarget, setQuickReminderTarget] = useState<{ id: string, type: 'transaction' | 'lead' }>({ id: '', type: 'transaction' });
@@ -1869,25 +1903,47 @@ const DashboardView = ({ transactions, leads, onSelectDeal, onSelectLead, onAddR
             </div>
           </div>
 
-          {/* Recent Activity Feed with Notes Search */}
+          {/* Recent Activity Feed */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-4">
               <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider shrink-0">
-                <History className="w-4 h-4 text-slate-500" /> {notesSearch ? 'Notes Search' : 'Recent Developments'}
+                <History className="w-4 h-4 text-slate-500" /> {(actionLog && actionLog.length > 0) ? 'Recent Actions' : (notesSearch ? 'Notes Search' : 'Recent Developments')}
               </h2>
-              <div className="relative w-full max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search all notes..."
-                  value={notesSearch}
-                  onChange={(e) => setNotesSearch(e.target.value)}
-                  className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
+              {!(actionLog && actionLog.length > 0) && (
+                <div className="relative w-full max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search all notes..."
+                    value={notesSearch}
+                    onChange={(e) => setNotesSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+              )}
             </div>
             <div className="divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-              {displayedActivity.length === 0 ? (
+              {actionLog && actionLog.length > 0 ? (
+                actionLog.slice(0, 8).map((entry) => (
+                  <div
+                    key={entry.id}
+                    onClick={() => entry.entityType === 'lead' ? onSelectLead(entry.entityId) : onSelectDeal(entry.entityId)}
+                    className="p-4 hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tighter", ACTION_COLORS[entry.type])}>{ACTION_LABELS[entry.type]}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{format(parseISO(entry.timestamp), 'MMM d, h:mm a')}</span>
+                      </div>
+                      <div className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-tighter", entry.entityType === 'lead' ? "bg-purple-100 text-purple-700" : "bg-indigo-100 text-indigo-700")}>
+                        {entry.entityType === 'lead' ? 'Lead' : 'Deal'}
+                      </div>
+                    </div>
+                    <p className="text-sm text-slate-700 line-clamp-2 group-hover:text-slate-900 transition-colors font-medium">{entry.entityName}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{entry.description}</p>
+                  </div>
+                ))
+              ) : displayedActivity.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 italic text-sm">{notesSearch ? 'No notes matching your search.' : 'No recent activity logged.'}</div>
               ) : (
                 displayedActivity.map((act, i) => (
@@ -2056,6 +2112,7 @@ const LeadsView = ({
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [incompleteFilter, setIncompleteFilter] = useState(false);
   const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
+  const [leadsPage, setLeadsPage] = useState(1);
 
   const toggleTypeFilter = (type: string) => {
     const newSet = new Set(selectedTypes);
@@ -2113,6 +2170,12 @@ const LeadsView = ({
 
     return data;
   }, [leads, search, sortConfig, selectedTypes, incompleteFilter]);
+
+  useEffect(() => { setLeadsPage(1); }, [search, selectedTypes, incompleteFilter, sortConfig]);
+
+  const leadsTotalPages = Math.max(1, Math.ceil(filteredLeads.length / ITEMS_PER_PAGE));
+  const leadsSafePage = Math.min(leadsPage, leadsTotalPages);
+  const pagedLeads = filteredLeads.slice((leadsSafePage - 1) * ITEMS_PER_PAGE, leadsSafePage * ITEMS_PER_PAGE);
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds);
@@ -2239,7 +2302,7 @@ const LeadsView = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredLeads.map((lead) => {
+              {pagedLeads.map((lead) => {
                 const missingFields = getMissingLeadFields(lead);
                 return (
                     <tr
@@ -2311,6 +2374,11 @@ const LeadsView = ({
               })}
             </tbody>
           </table>
+          {leadsTotalPages > 1 && (
+            <div className="border-t border-slate-200 px-4 py-2">
+              <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
+            </div>
+          )}
         </div>
         {filteredLeads.length === 0 && (
           <div className="p-12 text-center text-slate-500">
@@ -3353,6 +3421,7 @@ const PipelineView = ({
   const [dragDealId, setDragDealId] = useState<string | null>(null);
   const [incompleteFilter, setIncompleteFilter] = useState(false);
   const [drawerTransactions, setDrawerTransactions] = useState<Transaction[] | null>(null);
+  const [pipelinePage, setPipelinePage] = useState(1);
 
   const toggleStageFilter = (stage: PipelineStage) => {
     const newSet = new Set(selectedStages);
@@ -3435,6 +3504,12 @@ const PipelineView = ({
 
     return data;
   }, [transactions, search, sortConfig, selectedStages, filterYear, incompleteFilter]);
+
+  useEffect(() => { setPipelinePage(1); }, [search, selectedStages, filterYear, incompleteFilter, sortConfig]);
+
+  const pipelineTotalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE));
+  const pipelineSafePage = Math.min(pipelinePage, pipelineTotalPages);
+  const pagedData = filteredData.slice((pipelineSafePage - 1) * ITEMS_PER_PAGE, pipelineSafePage * ITEMS_PER_PAGE);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -3626,7 +3701,7 @@ const PipelineView = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredData.map((deal) => {
+            {pagedData.map((deal) => {
               const grossComm = deal.price * (deal.grossCommissionPercent / 100);
               const missingFields = getMissingTransactionFields(deal);
               return (
@@ -3703,6 +3778,11 @@ const PipelineView = ({
             );
           })()}
         </table>
+        {pipelineTotalPages > 1 && (
+          <div className="border-t border-slate-200 px-4 py-2">
+            <Pagination page={pipelineSafePage} totalPages={pipelineTotalPages} onPage={setPipelinePage} />
+          </div>
+        )}
       </div>
       )}
       {filteredData.length === 0 && viewMode === 'table' && (
@@ -3896,39 +3976,50 @@ const TimelineSummary = ({ transaction }: { transaction: Transaction }) => {
   );
 };
 
-const PartiesSummary = ({ transaction }: { transaction: Transaction }) => (
-  <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-    <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-      <Users className="w-4 h-4 text-slate-400" /> Parties
-    </h3>
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">B</div>
-        <div>
-          <p className="text-xs text-slate-500 uppercase font-bold">Buyer</p>
-          <p className="text-sm font-medium text-slate-900">{transaction.buyer.name || 'Unknown'}</p>
-        </div>
+const PartiesSummary = ({ transaction }: { transaction: Transaction }) => {
+  const getSide = (p: Party): Party['side'] =>
+    p.side || (/^buyer/i.test(p.role) ? 'buyer' : /^seller/i.test(p.role) ? 'seller' : 'third-party');
+  const buyers = [transaction.buyer, ...transaction.otherParties.filter(p => getSide(p) === 'buyer')];
+  const sellers = [transaction.seller, ...transaction.otherParties.filter(p => getSide(p) === 'seller')];
+  const thirds = transaction.otherParties.filter(p => getSide(p) === 'third-party');
+  const row = (p: Party, i: number, colorCls: string) => (
+    <div key={p.id || i} className="flex items-center gap-2">
+      <div className={cn("w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0", colorCls)}>
+        {p.name ? p.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?'}
       </div>
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-xs">S</div>
+      <p className="text-sm font-medium text-slate-900 truncate">{p.name || <span className="text-slate-400 italic text-xs font-normal">Unnamed</span>}</p>
+    </div>
+  );
+  return (
+    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+      <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+        <Users className="w-4 h-4 text-slate-400" /> Parties
+      </h3>
+      {buyers.some(b => b.name) && (
         <div>
-          <p className="text-xs text-slate-500 uppercase font-bold">Seller</p>
-          <p className="text-sm font-medium text-slate-900">{transaction.seller.name || 'Unknown'}</p>
+          <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-1.5">Buyers</p>
+          <div className="space-y-1.5">{buyers.filter(b => b.name).map((b, i) => row(b, i, 'bg-indigo-100 text-indigo-700'))}</div>
         </div>
-      </div>
-      {transaction.otherParties.length > 0 && (
-        <div className="pt-2 border-t border-slate-100">
-          <p className="text-xs text-slate-500 mb-2">Other Parties ({transaction.otherParties.length})</p>
+      )}
+      {sellers.some(s => s.name) && (
+        <div>
+          <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1.5">Sellers</p>
+          <div className="space-y-1.5">{sellers.filter(s => s.name).map((s, i) => row(s, i, 'bg-emerald-100 text-emerald-700'))}</div>
+        </div>
+      )}
+      {thirds.length > 0 && (
+        <div>
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Third Parties</p>
           <div className="flex flex-wrap gap-1">
-            {transaction.otherParties.map((p, i) => (
-              <span key={i} className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-full">{p.role}</span>
+            {thirds.map((p, i) => (
+              <span key={p.id || i} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full">{p.role || p.name}</span>
             ))}
           </div>
         </div>
       )}
     </div>
-  </div>
-);
+  );
+};
 
 // Helper to derive all contacts from transactions + leads
 function deriveContacts(transactions: Transaction[], leads: Lead[]): DerivedContact[] {
@@ -3986,8 +4077,11 @@ function deriveContacts(transactions: Transaction[], leads: Lead[]): DerivedCont
     }
     for (const p of t.otherParties || []) {
       if (p.name) {
-        upsert(p.name, p.entity, p.email, p.phone, p.role || 'Other', {
-          type: 'transaction-party', id: t.id, label: t.dealName, role: p.role, stage: t.stage, coeDate: t.coeDate
+        const inferredSide = p.side || (/^buyer/i.test(p.role) ? 'buyer' : /^seller/i.test(p.role) ? 'seller' : 'third-party');
+        const displayRole = inferredSide === 'buyer' ? 'Buyer' : inferredSide === 'seller' ? 'Seller' : (p.role || 'Other');
+        upsert(p.name, p.entity, p.email, p.phone, displayRole, {
+          type: inferredSide === 'buyer' ? 'transaction-buyer' : inferredSide === 'seller' ? 'transaction-seller' : 'transaction-party',
+          id: t.id, label: t.dealName, role: displayRole, stage: t.stage, coeDate: t.coeDate
         }, dateHint);
       }
     }
@@ -4282,7 +4376,22 @@ const TransactionDetailView = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'parties' | 'timeline' | 'documents'>('overview');
   const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState<Transaction>(transaction);
+
+  // Normalize parties on init: assign IDs to any party missing one, and infer `side`
+  // from legacy role text so existing 'Buyer 2' entries surface under Buyers.
+  const [formData, setFormData] = useState<Transaction>(() => {
+    const norm = (p: Party): Party => ({
+      ...p,
+      id: p.id || Math.random().toString(36).substr(2, 9),
+      side: p.side || (/^buyer/i.test(p.role) ? 'buyer' : /^seller/i.test(p.role) ? 'seller' : 'third-party'),
+    });
+    return {
+      ...transaction,
+      buyer: norm(transaction.buyer),
+      seller: norm(transaction.seller),
+      otherParties: transaction.otherParties.map(norm),
+    };
+  });
 
   // Helper to navigate to a party's contact page
   const goToContact = (name: string, email?: string) => {
@@ -4412,26 +4521,103 @@ const TransactionDetailView = ({
     }));
   };
 
-  const addOtherParty = () => {
+  // ── Multi-party helpers ──────────────────────────────────────────────────
+  const getCombined = (side: 'buyer' | 'seller'): Party[] => {
+    const extras = formData.otherParties.filter(p => p.side === side);
+    return [formData[side], ...extras];
+  };
+
+  const setCombined = (side: 'buyer' | 'seller', arr: Party[]) => {
+    const [primary, ...rest] = arr;
+    const otherSide = side === 'buyer' ? 'seller' : 'buyer';
+    const otherExtras = formData.otherParties.filter(p => p.side === otherSide);
+    const thirds = formData.otherParties.filter(p => !p.side || p.side === 'third-party');
     setFormData(prev => ({
       ...prev,
-      otherParties: [...prev.otherParties, { role: '', name: '', entity: '', email: '', phone: '' }]
+      [side]: { ...primary, side: undefined },
+      otherParties: [
+        ...otherExtras,
+        ...rest.map(p => ({ ...p, side: side as Party['side'] })),
+        ...thirds,
+      ],
     }));
   };
 
-  const updateOtherParty = (index: number, field: keyof Party, value: string) => {
+  const getThirdParties = (): Party[] =>
+    formData.otherParties.filter(p => !p.side || p.side === 'third-party');
+
+  const setThirdParties = (thirds: Party[]) => {
+    const buyerExtras = formData.otherParties.filter(p => p.side === 'buyer');
+    const sellerExtras = formData.otherParties.filter(p => p.side === 'seller');
     setFormData(prev => ({
       ...prev,
-      otherParties: prev.otherParties.map((p, i) => i === index ? { ...p, [field]: value } : p)
+      otherParties: [
+        ...buyerExtras,
+        ...sellerExtras,
+        ...thirds.map(p => ({ ...p, side: 'third-party' as Party['side'] })),
+      ],
     }));
   };
 
-  const removeOtherParty = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      otherParties: prev.otherParties.filter((_, i) => i !== index)
-    }));
+  const addPartyToGroup = (side: 'buyer' | 'seller' | 'third-party') => {
+    if (side === 'third-party') {
+      setThirdParties([...getThirdParties(), mkParty('', 'third-party')]);
+    } else {
+      setCombined(side, [...getCombined(side), mkParty('', side)]);
+    }
   };
+
+  const updatePartyInGroup = (
+    side: 'buyer' | 'seller' | 'third-party',
+    idx: number,
+    field: keyof Party,
+    value: string
+  ) => {
+    if (side === 'third-party') {
+      setThirdParties(getThirdParties().map((p, i) => i === idx ? { ...p, [field]: value } : p));
+    } else {
+      setCombined(side, getCombined(side).map((p, i) => i === idx ? { ...p, [field]: value } : p));
+    }
+  };
+
+  const removePartyFromGroup = (side: 'buyer' | 'seller' | 'third-party', idx: number) => {
+    if (side === 'third-party') {
+      setThirdParties(getThirdParties().filter((_, i) => i !== idx));
+    } else {
+      if (idx === 0) return; // primary cannot be removed
+      setCombined(side, getCombined(side).filter((_, i) => i !== idx));
+    }
+  };
+
+  const dragInfo = React.useRef<{ side: string; idx: number } | null>(null);
+
+  const handleDragStart = (side: string, idx: number) => {
+    dragInfo.current = { side, idx };
+  };
+
+  const handleDropOnParty = (side: 'buyer' | 'seller' | 'third-party', dropIdx: number) => {
+    if (!dragInfo.current || dragInfo.current.side !== side) return;
+    const fromIdx = dragInfo.current.idx;
+    if (fromIdx === dropIdx) return;
+    if (side === 'third-party') {
+      const arr = [...getThirdParties()];
+      const [moved] = arr.splice(fromIdx, 1);
+      arr.splice(dropIdx, 0, moved);
+      setThirdParties(arr);
+    } else {
+      const arr = [...getCombined(side)];
+      const [moved] = arr.splice(fromIdx, 1);
+      arr.splice(dropIdx, 0, moved);
+      setCombined(side, arr);
+    }
+    dragInfo.current = null;
+  };
+
+  // Legacy shims for Overview widget backward compat
+  const addOtherParty = () => addPartyToGroup('third-party');
+  const updateOtherParty = (index: number, field: keyof Party, value: string) =>
+    updatePartyInGroup('third-party', index, field, value);
+  const removeOtherParty = (index: number) => removePartyFromGroup('third-party', index);
 
   const addCustomDate = () => {
     setFormData(prev => ({
@@ -4648,107 +4834,58 @@ const TransactionDetailView = ({
               {/* Widgets */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Inline Parties Widget */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                  <div className="flex justify-between items-center mb-4">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-slate-50">
                     <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                       <Users className="w-4 h-4 text-slate-400" /> Parties
                     </h3>
                     {isEditing && (
-                      <button onClick={addOtherParty} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> Add Party
+                      <button onClick={() => setActiveTab('parties')} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                        <Edit3 className="w-3 h-3" /> Manage in Parties tab
                       </button>
                     )}
                   </div>
-                  <div className="space-y-4">
-                    {/* Buyer */}
-                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-                      <p className="text-xs font-bold text-indigo-600 uppercase mb-2 flex items-center gap-1.5">
-                        <div className="w-5 h-5 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs">B</div> Buyer
-                      </p>
-                      {isEditing ? (
-                        <div className="space-y-2">
-                          <input type="text" value={formData.buyer.name} onChange={e => handlePartyChange('buyer', 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
-                          <input type="text" value={formData.buyer.entity || ''} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} placeholder="Entity" className="w-full p-1.5 border rounded text-sm" />
-                          <input type="email" value={formData.buyer.email || ''} onChange={e => handlePartyChange('buyer', 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
-                          <input type="text" value={formData.buyer.phone || ''} onChange={e => handlePartyChange('buyer', 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
+                  {/* Buyers */}
+                  {(() => {
+                    const buyers = getCombined('buyer');
+                    const sellers = getCombined('seller');
+                    const thirds = getThirdParties();
+                    const renderPartyRow = (p: Party, idx: number, colorCls: string) => (
+                      <div key={p.id || idx} className="flex items-center gap-3 py-2.5 px-5 border-b border-slate-50 last:border-0">
+                        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0", colorCls)}>
+                          {p.name ? p.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : '?'}
                         </div>
-                      ) : (
-                        <div>
-                          {onSelectContact && formData.buyer.name
-                            ? <button onClick={() => goToContact(formData.buyer.name, formData.buyer.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.buyer.name}</button>
-                            : <p className="font-medium text-slate-900">{formData.buyer.name || 'Unknown'}</p>}
-                          {formData.buyer.entity && <p className="text-xs text-slate-500">{formData.buyer.entity}</p>}
-                          <div className="mt-1.5 space-y-1">
-                            {formData.buyer.email && <p className="text-xs text-slate-600 flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {formData.buyer.email}</p>}
-                            {formData.buyer.phone && <p className="text-xs text-slate-600 flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {formData.buyer.phone}</p>}
+                        <div className="flex-1 min-w-0">
+                          {onSelectContact && p.name
+                            ? <button onClick={() => goToContact(p.name, p.email)} className="font-medium text-slate-900 hover:text-indigo-600 text-sm">{p.name}</button>
+                            : <p className="font-medium text-slate-900 text-sm">{p.name || <span className="text-slate-400 italic font-normal text-xs">Unnamed</span>}</p>}
+                          {p.entity && <p className="text-xs text-slate-400 truncate">{p.entity}</p>}
+                        </div>
+                      </div>
+                    );
+                    return (
+                      <div className="divide-y divide-slate-100">
+                        {buyers.length > 0 && (
+                          <div>
+                            <p className="px-5 pt-3 pb-1 text-xs font-bold text-indigo-600 uppercase tracking-wider">Buyers ({buyers.length})</p>
+                            {buyers.map((p, i) => renderPartyRow(p, i, 'bg-indigo-100 text-indigo-700'))}
                           </div>
-                        </div>
-                      )}
-                    </div>
-                    {/* Seller */}
-                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
-                      <p className="text-xs font-bold text-emerald-600 uppercase mb-2 flex items-center gap-1.5">
-                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold text-xs">S</div> Seller
-                      </p>
-                      {isEditing ? (
-                        <div className="space-y-2">
-                          <input type="text" value={formData.seller.name} onChange={e => handlePartyChange('seller', 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
-                          <input type="text" value={formData.seller.entity || ''} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} placeholder="Entity" className="w-full p-1.5 border rounded text-sm" />
-                          <input type="email" value={formData.seller.email || ''} onChange={e => handlePartyChange('seller', 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
-                          <input type="text" value={formData.seller.phone || ''} onChange={e => handlePartyChange('seller', 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
-                        </div>
-                      ) : (
-                        <div>
-                          {onSelectContact && formData.seller.name
-                            ? <button onClick={() => goToContact(formData.seller.name, formData.seller.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.seller.name}</button>
-                            : <p className="font-medium text-slate-900">{formData.seller.name || 'Unknown'}</p>}
-                          {formData.seller.entity && <p className="text-xs text-slate-500">{formData.seller.entity}</p>}
-                          <div className="mt-1.5 space-y-1">
-                            {formData.seller.email && <p className="text-xs text-slate-600 flex items-center gap-1"><Mail className="w-3 h-3 text-slate-400" /> {formData.seller.email}</p>}
-                            {formData.seller.phone && <p className="text-xs text-slate-600 flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {formData.seller.phone}</p>}
+                        )}
+                        {sellers.length > 0 && (
+                          <div>
+                            <p className="px-5 pt-3 pb-1 text-xs font-bold text-emerald-600 uppercase tracking-wider">Sellers ({sellers.length})</p>
+                            {sellers.map((p, i) => renderPartyRow(p, i, 'bg-emerald-100 text-emerald-700'))}
                           </div>
-                        </div>
-                      )}
-                    </div>
-                    {/* Other Parties */}
-                    {(formData.otherParties.length > 0 || isEditing) && (
-                      <div className="pt-2 border-t border-slate-100">
-                        {formData.otherParties.length === 0 && isEditing ? (
-                          <p className="text-xs text-slate-400 italic">No other parties. Use "Add Party" above.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            <p className="text-xs text-slate-500 font-medium">Other Parties ({formData.otherParties.length})</p>
-                            {formData.otherParties.map((party, index) => (
-                              <div key={index} className="p-2 bg-slate-50 rounded border border-slate-100 relative group">
-                                {isEditing && (
-                                  <button onClick={() => removeOtherParty(index)} className="absolute top-1.5 right-1.5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                )}
-                                {isEditing ? (
-                                  <div className="space-y-1.5">
-                                    <input type="text" value={party.role} onChange={e => updateOtherParty(index, 'role', e.target.value)} placeholder="Role" className="w-full p-1.5 border rounded text-xs font-medium" />
-                                    <input type="text" value={party.name} onChange={e => updateOtherParty(index, 'name', e.target.value)} placeholder="Name" className="w-full p-1.5 border rounded text-sm" />
-                                    <input type="email" value={party.email || ''} onChange={e => updateOtherParty(index, 'email', e.target.value)} placeholder="Email" className="w-full p-1.5 border rounded text-sm" />
-                                    <input type="text" value={party.phone || ''} onChange={e => updateOtherParty(index, 'phone', e.target.value)} placeholder="Phone" className="w-full p-1.5 border rounded text-sm" />
-                                  </div>
-                                ) : (
-                                  <div>
-                                    <p className="text-xs font-bold text-slate-500 uppercase">{party.role || 'Unknown Role'}</p>
-                                    {onSelectContact && party.name
-                                      ? <button onClick={() => goToContact(party.name, party.email)} className="text-sm font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{party.name}</button>
-                                      : <p className="text-sm font-medium text-slate-900">{party.name}</p>}
-                                    {party.email && <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5"><Mail className="w-3 h-3 text-slate-400" /> {party.email}</p>}
-                                    {party.phone && <p className="text-xs text-slate-600 flex items-center gap-1 mt-0.5"><Phone className="w-3 h-3 text-slate-400" /> {party.phone}</p>}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+                        )}
+                        {thirds.length > 0 && (
+                          <div>
+                            <p className="px-5 pt-3 pb-1 text-xs font-bold text-slate-500 uppercase tracking-wider">Third Parties ({thirds.length})</p>
+                            {thirds.map((p, i) => renderPartyRow(p, i, 'bg-slate-100 text-slate-600'))}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Inline Timeline Widget */}
@@ -5008,188 +5145,157 @@ const TransactionDetailView = ({
             </div>
           )}
 
-          {activeTab === 'parties' && (
-            <div className="space-y-6 animate-in fade-in duration-300">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Buyer Card */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <Users className="w-4 h-4 text-slate-400" /> Buyer
-                  </h3>
-                  <div className="space-y-4">
-                    {isEditing ? (
-                      <>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
-                          <input type="text" value={formData.buyer.name} onChange={e => handlePartyChange('buyer', 'name', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                          <input type="text" value={formData.buyer.entity || ''} onChange={e => handlePartyChange('buyer', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
-                          <input type="email" value={formData.buyer.email || ''} onChange={e => handlePartyChange('buyer', 'email', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-                          <input type="text" value={formData.buyer.phone || ''} onChange={e => handlePartyChange('buyer', 'phone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold">
-                            {formData.buyer.name.charAt(0) || 'B'}
-                          </div>
-                          <div>
-                            {onSelectContact && formData.buyer.name
-                              ? <button onClick={() => goToContact(formData.buyer.name, formData.buyer.email)} className="font-bold text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.buyer.name}</button>
-                              : <p className="font-bold text-slate-900">{formData.buyer.name || 'Unknown Buyer'}</p>}
-                            <p className="text-xs text-slate-500">{formData.buyer.entity || 'No Entity Listed'}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <p className="text-sm text-slate-600 flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /> {formData.buyer.email || '-'}</p>
-                          <p className="text-sm text-slate-600 flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /> {formData.buyer.phone || '-'}</p>
-                        </div>
-                      </>
+          {activeTab === 'parties' && (() => {
+            const buyers = getCombined('buyer');
+            const sellers = getCombined('seller');
+            const thirds = getThirdParties();
+
+            const PartyGroup = ({
+              side,
+              parties,
+              color,
+              label,
+              addLabel,
+            }: {
+              side: 'buyer' | 'seller' | 'third-party';
+              parties: Party[];
+              color: 'indigo' | 'emerald' | 'slate';
+              label: string;
+              addLabel: string;
+            }) => {
+              const bg = color === 'indigo' ? 'bg-indigo-100 text-indigo-700' : color === 'emerald' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600';
+              const pill = color === 'indigo' ? 'bg-indigo-50 border-indigo-200' : color === 'emerald' ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200';
+              return (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className={cn("flex items-center justify-between px-5 py-3 border-b border-slate-100", color === 'indigo' ? 'bg-indigo-50/60' : color === 'emerald' ? 'bg-emerald-50/60' : 'bg-slate-50')}>
+                    <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-slate-400" />
+                      {label}
+                      <span className="font-normal text-slate-400 normal-case text-xs">{parties.length > 0 ? `(${parties.length})` : ''}</span>
+                    </h3>
+                    {isEditing && (
+                      <button
+                        onClick={() => addPartyToGroup(side)}
+                        className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" /> {addLabel}
+                      </button>
                     )}
                   </div>
-                </div>
-
-                {/* Seller Card */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <Users className="w-4 h-4 text-slate-400" /> Seller
-                  </h3>
-                  <div className="space-y-4">
-                    {isEditing ? (
-                      <>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
-                          <input type="text" value={formData.seller.name} onChange={e => handlePartyChange('seller', 'name', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                          <input type="text" value={formData.seller.entity || ''} onChange={e => handlePartyChange('seller', 'entity', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
-                          <input type="email" value={formData.seller.email || ''} onChange={e => handlePartyChange('seller', 'email', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-                          <input type="text" value={formData.seller.phone || ''} onChange={e => handlePartyChange('seller', 'phone', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-bold">
-                            {formData.seller.name.charAt(0) || 'S'}
-                          </div>
-                          <div>
-                            {onSelectContact && formData.seller.name
-                              ? <button onClick={() => goToContact(formData.seller.name, formData.seller.email)} className="font-bold text-slate-900 hover:text-indigo-600 transition-colors text-left">{formData.seller.name}</button>
-                              : <p className="font-bold text-slate-900">{formData.seller.name || 'Unknown Seller'}</p>}
-                            <p className="text-xs text-slate-500">{formData.seller.entity || 'No Entity Listed'}</p>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <p className="text-sm text-slate-600 flex items-center gap-2"><Mail className="w-4 h-4 text-slate-400" /> {formData.seller.email || '-'}</p>
-                          <p className="text-sm text-slate-600 flex items-center gap-2"><Phone className="w-4 h-4 text-slate-400" /> {formData.seller.phone || '-'}</p>
-                        </div>
-                      </>
+                  <div className="divide-y divide-slate-50">
+                    {parties.length === 0 && (
+                      <p className="px-5 py-4 text-sm text-slate-400 italic">None listed.</p>
                     )}
+                    {parties.map((party, idx) => {
+                      const initials = party.name ? party.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : (color === 'indigo' ? 'B' : color === 'emerald' ? 'S' : '?');
+                      const isPrimary = side !== 'third-party' && idx === 0;
+                      return (
+                        <div
+                          key={party.id || idx}
+                          draggable={isEditing}
+                          onDragStart={() => handleDragStart(side, idx)}
+                          onDragOver={e => { e.preventDefault(); }}
+                          onDrop={() => handleDropOnParty(side, idx)}
+                          className={cn("px-5 py-4 transition-colors", isEditing && "hover:bg-slate-50/80")}
+                        >
+                          {isEditing ? (
+                            <div className="flex items-start gap-3">
+                              <div className="flex flex-col items-center gap-2 pt-1 shrink-0">
+                                <GripVertical className="w-4 h-4 text-slate-300 cursor-grab active:cursor-grabbing" />
+                              </div>
+                              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {side === 'third-party' && (
+                                  <div className="sm:col-span-2">
+                                    <input
+                                      type="text"
+                                      value={party.role}
+                                      onChange={e => updatePartyInGroup(side, idx, 'role', e.target.value)}
+                                      placeholder="Label (e.g. Escrow Agent, Title Officer)"
+                                      className="w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                    />
+                                  </div>
+                                )}
+                                <input
+                                  type="text"
+                                  value={party.name}
+                                  onChange={e => updatePartyInGroup(side, idx, 'name', e.target.value)}
+                                  placeholder="Name"
+                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                />
+                                <input
+                                  type="text"
+                                  value={party.entity || ''}
+                                  onChange={e => updatePartyInGroup(side, idx, 'entity', e.target.value)}
+                                  placeholder="Entity / LLC / Trust"
+                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                />
+                                <input
+                                  type="email"
+                                  value={party.email || ''}
+                                  onChange={e => updatePartyInGroup(side, idx, 'email', e.target.value)}
+                                  placeholder="Email"
+                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                />
+                                <input
+                                  type="text"
+                                  value={party.phone || ''}
+                                  onChange={e => updatePartyInGroup(side, idx, 'phone', e.target.value)}
+                                  placeholder="Phone"
+                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                />
+                              </div>
+                              <div className="shrink-0 pt-1">
+                                {!isPrimary ? (
+                                  <button
+                                    onClick={() => removePartyFromGroup(side, idx)}
+                                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                    title="Remove"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                ) : (
+                                  <div className="w-8" />
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-4">
+                              <div className={cn("w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0", bg)}>
+                                {initials}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {onSelectContact && party.name
+                                    ? <button onClick={() => goToContact(party.name, party.email)} className="font-semibold text-slate-900 hover:text-indigo-600 transition-colors">{party.name}</button>
+                                    : <p className="font-semibold text-slate-900">{party.name || <span className="text-slate-400 italic font-normal">Unnamed</span>}</p>}
+                                  {isPrimary && <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Primary</span>}
+                                  {side === 'third-party' && party.role && <span className={cn("text-xs font-semibold uppercase px-2 py-0.5 rounded border", pill)}>{party.role}</span>}
+                                </div>
+                                {party.entity && <p className="text-xs text-slate-500 mt-0.5">{party.entity}</p>}
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
+                                  {party.email && <p className="text-xs text-slate-500 flex items-center gap-1"><Mail className="w-3 h-3" /> {party.email}</p>}
+                                  {party.phone && <p className="text-xs text-slate-500 flex items-center gap-1"><Phone className="w-3 h-3" /> {party.phone}</p>}
+                                  {!party.email && !party.phone && <p className="text-xs text-slate-400 italic">No contact info</p>}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
+              );
+            };
 
-              {/* Other Parties */}
-              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                    <Users className="w-4 h-4 text-slate-400" /> Other Parties
-                  </h3>
-                  {isEditing && (
-                    <button onClick={addOtherParty} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
-                      <Plus className="w-3 h-3" /> Add Party
-                    </button>
-                  )}
-                </div>
-                
-                {formData.otherParties.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic">No other parties listed.</p>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {formData.otherParties.map((party, index) => (
-                      <div key={index} className="p-4 bg-slate-50 rounded-lg border border-slate-200 relative group">
-                        {isEditing && (
-                          <button 
-                            onClick={() => removeOtherParty(index)}
-                            className="absolute top-2 right-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        )}
-                        
-                        {isEditing ? (
-                          <div className="space-y-3">
-                            <input 
-                              type="text" 
-                              value={party.role}
-                              onChange={e => updateOtherParty(index, 'role', e.target.value)}
-                              placeholder="Role (e.g. Title Officer)"
-                              className="w-full p-2 border border-slate-300 rounded text-xs font-medium"
-                            />
-                            <input 
-                              type="text" 
-                              value={party.name}
-                              onChange={e => updateOtherParty(index, 'name', e.target.value)}
-                              placeholder="Name"
-                              className="w-full p-2 border border-slate-300 rounded text-sm"
-                            />
-                            <input 
-                              type="text" 
-                              value={party.email || ''}
-                              onChange={e => updateOtherParty(index, 'email', e.target.value)}
-                              placeholder="Email"
-                              className="w-full p-2 border border-slate-300 rounded text-sm"
-                            />
-                            <input 
-                              type="text" 
-                              value={party.phone || ''}
-                              onChange={e => updateOtherParty(index, 'phone', e.target.value)}
-                              placeholder="Phone"
-                              className="w-full p-2 border border-slate-300 rounded text-sm"
-                            />
-                          </div>
-                        ) : (
-                          <div>
-                            <p className="text-xs font-bold text-slate-500 uppercase mb-1">{party.role || 'Unknown Role'}</p>
-                            {onSelectContact && party.name
-                              ? <button onClick={() => goToContact(party.name, party.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{party.name}</button>
-                              : <p className="font-medium text-slate-900">{party.name}</p>}
-                            {party.email && (
-                              <p className="text-sm text-slate-600 flex items-center gap-2 mt-1">
-                                <Mail className="w-3 h-3 text-slate-400" /> {party.email}
-                              </p>
-                            )}
-                            {party.phone && (
-                              <p className="text-sm text-slate-600 flex items-center gap-2 mt-1">
-                                <Phone className="w-3 h-3 text-slate-400" /> {party.phone}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+            return (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <PartyGroup side="buyer" parties={buyers} color="indigo" label="Buyers" addLabel="Add Buyer" />
+                <PartyGroup side="seller" parties={sellers} color="emerald" label="Sellers" addLabel="Add Seller" />
+                <PartyGroup side="third-party" parties={thirds} color="slate" label="Third Parties" addLabel="Add Third Party" />
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === 'timeline' && (
             <div className="space-y-6 animate-in fade-in duration-300">
@@ -5687,209 +5793,132 @@ const NewTransactionModal = ({
                 {/* Section: Parties */}
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider border-b border-slate-100 pb-2">Parties</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Buyer */}
-                    <div className="space-y-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                      <h4 className="font-semibold text-slate-700 flex items-center gap-2">
-                        <Users className="w-4 h-4" /> Buyer
-                      </h4>
-                      <div className="relative">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
-                        <input
-                          type="text"
-                          value={formData.buyer.name}
-                          onChange={e => {
-                            handlePartyChange('buyer', 'name', e.target.value);
-                            setBuyerSuggestions(getSuggestions(e.target.value));
-                          }}
-                          onBlur={() => setTimeout(() => setBuyerSuggestions([]), 150)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="Buyer Name"
-                          autoComplete="off"
-                        />
-                        {buyerSuggestions.length > 0 && (
-                          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
-                            {buyerSuggestions.map(c => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onMouseDown={() => applyContact('buyer', c)}
-                                className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2"
-                              >
-                                <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs shrink-0">
-                                  {c.name[0]}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-slate-900 truncate">{c.name}</p>
-                                  {c.entity && <p className="text-xs text-slate-500 truncate">{c.entity}</p>}
-                                  <p className="text-xs text-indigo-500">{c.primaryRole} · {c.sources.length} deal{c.sources.length !== 1 ? 's' : ''}</p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                        <input
-                          type="text"
-                          value={formData.buyer.entity || ''}
-                          onChange={e => handlePartyChange('buyer', 'entity', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="LLC / Trust"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
-                        <input
-                          type="email"
-                          value={formData.buyer.email || ''}
-                          onChange={e => handlePartyChange('buyer', 'email', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="buyer@email.com"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-                        <input
-                          type="text"
-                          value={formData.buyer.phone || ''}
-                          onChange={e => handlePartyChange('buyer', 'phone', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="(555) 000-0000"
-                        />
-                      </div>
-                    </div>
 
-                    {/* Seller */}
-                    <div className="space-y-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                      <h4 className="font-semibold text-slate-700 flex items-center gap-2">
-                        <Users className="w-4 h-4" /> Seller
-                      </h4>
-                      <div className="relative">
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
-                        <input
-                          type="text"
-                          value={formData.seller.name}
-                          onChange={e => {
-                            handlePartyChange('seller', 'name', e.target.value);
-                            setSellerSuggestions(getSuggestions(e.target.value));
-                          }}
-                          onBlur={() => setTimeout(() => setSellerSuggestions([]), 150)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="Seller Name"
-                          autoComplete="off"
-                        />
-                        {sellerSuggestions.length > 0 && (
-                          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
-                            {sellerSuggestions.map(c => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onMouseDown={() => applyContact('seller', c)}
-                                className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2"
-                              >
-                                <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold text-xs shrink-0">
-                                  {c.name[0]}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium text-slate-900 truncate">{c.name}</p>
-                                  {c.entity && <p className="text-xs text-slate-500 truncate">{c.entity}</p>}
-                                  <p className="text-xs text-indigo-500">{c.primaryRole} · {c.sources.length} deal{c.sources.length !== 1 ? 's' : ''}</p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
-                        <input
-                          type="text"
-                          value={formData.seller.entity || ''}
-                          onChange={e => handlePartyChange('seller', 'entity', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="LLC / Trust"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
-                        <input
-                          type="email"
-                          value={formData.seller.email || ''}
-                          onChange={e => handlePartyChange('seller', 'email', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="seller@email.com"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-                        <input
-                          type="text"
-                          value={formData.seller.phone || ''}
-                          onChange={e => handlePartyChange('seller', 'phone', e.target.value)}
-                          className="w-full p-2 border border-slate-300 rounded-lg text-sm"
-                          placeholder="(555) 000-0000"
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  {/* Helper to render a party input row */}
+                  {(['buyer', 'seller', 'third-party'] as const).map(side => {
+                    const isBuyer = side === 'buyer';
+                    const isSeller = side === 'seller';
+                    const isThird = side === 'third-party';
+                    const extras = formData.otherParties.filter(p => p.side === side);
+                    const primaryParty = isThird ? null : formData[side as 'buyer' | 'seller'];
+                    const allInGroup = isThird ? extras : [primaryParty!, ...extras];
+                    const label = isBuyer ? 'Buyers' : isSeller ? 'Sellers' : 'Third Parties';
+                    const addLabel = isBuyer ? '+ Co-Buyer' : isSeller ? '+ Co-Seller' : '+ Add Third Party';
+                    const headerColor = isBuyer ? 'text-indigo-600' : isSeller ? 'text-emerald-600' : 'text-slate-500';
+                    const suggestions = isBuyer ? buyerSuggestions : isSeller ? sellerSuggestions : [];
+                    const setSuggestions = isBuyer ? setBuyerSuggestions : isSeller ? setSellerSuggestions : (_: DerivedContact[]) => {};
 
-                  {/* Other Parties */}
-                  <div className="mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex justify-between items-center mb-3">
-                      <h4 className="font-semibold text-slate-700 flex items-center gap-2">
-                        <Users className="w-4 h-4" /> Other Parties
-                      </h4>
-                      <button type="button" onClick={addOtherParty} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> Add Party
-                      </button>
-                    </div>
-                    
-                    {formData.otherParties.length === 0 ? (
-                      <p className="text-xs text-slate-400 italic">No other parties added.</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {formData.otherParties.map((party, index) => (
-                          <div key={index} className="flex gap-2 items-start animate-in fade-in slide-in-from-top-1">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-1">
-                              <input 
-                                type="text" 
-                                value={party.role}
-                                onChange={e => updateOtherParty(index, 'role', e.target.value)}
-                                placeholder="Role"
-                                className="p-2 border border-slate-300 rounded-lg text-sm"
-                              />
-                              <input 
-                                type="text" 
-                                value={party.name}
-                                onChange={e => updateOtherParty(index, 'name', e.target.value)}
-                                placeholder="Name"
-                                className="p-2 border border-slate-300 rounded-lg text-sm"
-                              />
-                              <input 
-                                type="text" 
-                                value={party.email || ''}
-                                onChange={e => updateOtherParty(index, 'email', e.target.value)}
-                                placeholder="Email"
-                                className="p-2 border border-slate-300 rounded-lg text-sm"
-                              />
-                              <input 
-                                type="text" 
-                                value={party.phone || ''}
-                                onChange={e => updateOtherParty(index, 'phone', e.target.value)}
-                                placeholder="Phone"
-                                className="p-2 border border-slate-300 rounded-lg text-sm"
-                              />
-                            </div>
-                            <button type="button" onClick={() => removeOtherParty(index)} className="p-2 text-slate-400 hover:text-red-500 mt-1">
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
+                    const addToGroup = () => {
+                      const newP = mkParty('', side);
+                      setFormData(prev => ({ ...prev, otherParties: [...prev.otherParties, newP] }));
+                    };
+                    const updateInGroup = (idx: number, field: keyof Party, value: string) => {
+                      if (!isThird && idx === 0) {
+                        handlePartyChange(side as 'buyer' | 'seller', field, value);
+                      } else {
+                        const realIdx = isThird ? idx : idx - 1;
+                        const arr = [...extras];
+                        arr[realIdx] = { ...arr[realIdx], [field]: value };
+                        setFormData(prev => ({
+                          ...prev,
+                          otherParties: prev.otherParties.map(p =>
+                            arr.find(a => a.id === p.id) ? arr.find(a => a.id === p.id)! : p
+                          ),
+                        }));
+                      }
+                    };
+                    const removeFromGroup = (idx: number) => {
+                      if (!isThird && idx === 0) return;
+                      const realIdx = isThird ? idx : idx - 1;
+                      const target = extras[realIdx];
+                      if (!target) return;
+                      setFormData(prev => ({
+                        ...prev,
+                        otherParties: prev.otherParties.filter(p => p.id !== target.id),
+                      }));
+                    };
+
+                    return (
+                      <div key={side} className="rounded-lg border border-slate-200 overflow-hidden">
+                        <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-100">
+                          <h4 className={cn("text-xs font-bold uppercase tracking-wider flex items-center gap-1.5", headerColor)}>
+                            <Users className="w-3.5 h-3.5" /> {label}
+                          </h4>
+                          <button type="button" onClick={addToGroup} className="text-xs text-indigo-600 font-medium hover:text-indigo-800 flex items-center gap-1">
+                            <Plus className="w-3 h-3" /> {addLabel}
+                          </button>
+                        </div>
+                        <div className="divide-y divide-slate-50">
+                          {allInGroup.map((party, idx) => {
+                            const isPrimary = !isThird && idx === 0;
+                            const nameVal = party?.name || '';
+                            return (
+                              <div key={party?.id || idx} className="p-3 flex gap-2 items-start animate-in fade-in">
+                                <div className="flex-1 space-y-2">
+                                  {isThird && (
+                                    <input
+                                      type="text"
+                                      value={party?.role || ''}
+                                      onChange={e => updateInGroup(idx, 'role', e.target.value)}
+                                      placeholder="Label (e.g. Escrow Agent)"
+                                      className="w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                    />
+                                  )}
+                                  <div className="relative">
+                                    <input
+                                      type="text"
+                                      value={nameVal}
+                                      onChange={e => {
+                                        updateInGroup(idx, 'name', e.target.value);
+                                        if (isPrimary) setSuggestions(getSuggestions(e.target.value));
+                                      }}
+                                      onBlur={() => isPrimary && setTimeout(() => setSuggestions([]), 150)}
+                                      placeholder="Name"
+                                      autoComplete="off"
+                                      className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                    />
+                                    {isPrimary && suggestions.length > 0 && (
+                                      <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                                        {suggestions.map(c => (
+                                          <button
+                                            key={c.id}
+                                            type="button"
+                                            onMouseDown={() => applyContact(side as 'buyer' | 'seller', c)}
+                                            className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2"
+                                          >
+                                            <div className={cn("w-5 h-5 rounded-full flex items-center justify-center font-bold text-xs shrink-0", isBuyer ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700")}>
+                                              {c.name[0]}
+                                            </div>
+                                            <div className="min-w-0">
+                                              <p className="text-xs font-medium text-slate-900 truncate">{c.name}</p>
+                                              {c.entity && <p className="text-xs text-slate-400 truncate">{c.entity}</p>}
+                                            </div>
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <input type="text" value={party?.entity || ''} onChange={e => updateInGroup(idx, 'entity', e.target.value)} placeholder="Entity" className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400" />
+                                    <input type="email" value={party?.email || ''} onChange={e => updateInGroup(idx, 'email', e.target.value)} placeholder="Email" className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400" />
+                                    <input type="text" value={party?.phone || ''} onChange={e => updateInGroup(idx, 'phone', e.target.value)} placeholder="Phone" className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400" />
+                                  </div>
+                                </div>
+                                {!isPrimary && (
+                                  <button type="button" onClick={() => removeFromGroup(idx)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors mt-1">
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {allInGroup.length === 0 && (
+                            <p className="px-4 py-3 text-xs text-slate-400 italic">None added.</p>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    );
+                  })}
                 </div>
 
                 {/* Section: Critical Dates */}
@@ -6206,16 +6235,232 @@ const ConfirmDialog = ({
   );
 };
 
+const ACTION_LABELS: Record<ActionType, string> = {
+  transaction_update: 'Deal Updated',
+  transaction_create: 'Deal Created',
+  transaction_delete: 'Deal Deleted',
+  transaction_restore: 'Deal Restored',
+  lead_update: 'Lead Updated',
+  lead_create: 'Lead Created',
+  lead_delete: 'Lead Deleted',
+  lead_restore: 'Lead Restored',
+};
+
+const ACTION_COLORS: Record<ActionType, string> = {
+  transaction_update: 'bg-indigo-100 text-indigo-700',
+  transaction_create: 'bg-emerald-100 text-emerald-700',
+  transaction_delete: 'bg-red-100 text-red-700',
+  transaction_restore: 'bg-amber-100 text-amber-700',
+  lead_update: 'bg-purple-100 text-purple-700',
+  lead_create: 'bg-teal-100 text-teal-700',
+  lead_delete: 'bg-red-100 text-red-600',
+  lead_restore: 'bg-amber-100 text-amber-600',
+};
+
+const ITEMS_PER_PAGE = 20;
+const ACTION_RETENTION_DAYS = 10;
+
+const Pagination = ({
+  page, totalPages, onPage
+}: { page: number; totalPages: number; onPage: (p: number) => void }) => {
+  if (totalPages <= 1) return null;
+  const pages: (number | '...')[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push('...');
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push('...');
+    pages.push(totalPages);
+  }
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
+      <p className="text-xs text-slate-500">Page {page} of {totalPages}</p>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onPage(page - 1)} disabled={page === 1} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        {pages.map((p, i) =>
+          p === '...'
+            ? <span key={`ellipsis-${i}`} className="px-1.5 text-slate-400 text-sm">…</span>
+            : <button key={p} onClick={() => onPage(p as number)} className={cn("w-8 h-8 rounded text-sm font-medium transition-colors", page === p ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-200")}>{p}</button>
+        )}
+        <button onClick={() => onPage(page + 1)} disabled={page === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const RecentActionsView = ({
+  actions,
+  onSelectDeal,
+  onSelectLead,
+  onUndo,
+}: {
+  actions: ActionLogEntry[];
+  onSelectDeal: (id: string) => void;
+  onSelectLead: (id: string) => void;
+  onUndo: (entry: ActionLogEntry) => void;
+}) => {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'transaction' | 'lead'>('all');
+
+  const cutoff = new Date(Date.now() - ACTION_RETENTION_DAYS * 86400_000);
+
+  const filtered = useMemo(() => {
+    let list = actions.filter(a => new Date(a.timestamp) >= cutoff);
+    if (typeFilter !== 'all') list = list.filter(a => a.entityType === typeFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(a =>
+        a.entityName.toLowerCase().includes(q) ||
+        a.description.toLowerCase().includes(q) ||
+        ACTION_LABELS[a.type].toLowerCase().includes(q)
+      );
+    }
+    return list; // already newest-first from how we prepend
+  }, [actions, typeFilter, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
+
+  // Reset to page 1 when filter/search changes
+  React.useEffect(() => { setPage(1); }, [search, typeFilter]);
+
+  const canUndo = (a: ActionLogEntry) =>
+    (a.type === 'transaction_update' || a.type === 'lead_update' ||
+     a.type === 'transaction_delete' || a.type === 'lead_delete') &&
+    !!a.previousState;
+
+  return (
+    <div className="animate-in fade-in duration-300 space-y-6">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-slate-900">Recent Actions</h1>
+        <p className="text-slate-500">All changes from the last {ACTION_RETENTION_DAYS} days. You can review or undo updates and deletes.</p>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search actions..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+          />
+        </div>
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+          {(['all', 'transaction', 'lead'] as const).map(t => (
+            <button key={t} onClick={() => setTypeFilter(t)} className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors capitalize", typeFilter === t ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+              {t === 'all' ? 'All' : t === 'transaction' ? 'Deals' : 'Leads'}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-slate-500 ml-auto">{filtered.length} action{filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {pageItems.length === 0 ? (
+          <div className="p-12 text-center">
+            <History className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500 font-medium">{filtered.length === 0 && actions.filter(a => new Date(a.timestamp) >= cutoff).length === 0 ? 'No actions yet.' : 'No actions match your filters.'}</p>
+          </div>
+        ) : (
+          <>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Action</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Details</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider w-28">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {pageItems.map(entry => (
+                  <tr key={entry.id} className="hover:bg-slate-50 transition-colors group">
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-500 text-xs">
+                      <div>{format(parseISO(entry.timestamp), 'MMM d, yyyy')}</div>
+                      <div className="text-slate-400">{format(parseISO(entry.timestamp), 'h:mm a')}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap", ACTION_COLORS[entry.type])}>
+                        {ACTION_LABELS[entry.type]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => entry.entityType === 'transaction' ? onSelectDeal(entry.entityId) : onSelectLead(entry.entityId)}
+                        className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left"
+                      >
+                        {entry.entityName}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 text-xs max-w-xs">
+                      <p className="truncate">{entry.description}</p>
+                      {entry.changedFields && entry.changedFields.length > 0 && (
+                        <p className="text-slate-400 truncate">Fields: {entry.changedFields.join(', ')}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => entry.entityType === 'transaction' ? onSelectDeal(entry.entityId) : onSelectLead(entry.entityId)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          title="View"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {canUndo(entry) && (
+                          <button
+                            onClick={() => onUndo(entry)}
+                            className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                            title="Undo"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <Pagination page={safePage} totalPages={totalPages} onPage={setPage} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- Main App Component ---
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
   const [darkMode, setDarkMode] = useState(false);
+  const [actionLog, setActionLog] = useState<ActionLogEntry[]>([]);
+
+  const logAction = (entry: Omit<ActionLogEntry, 'id' | 'timestamp'>) => {
+    setActionLog(prev => [{
+      ...entry,
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+    }, ...prev]);
+  };
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -6292,12 +6537,30 @@ export default function App() {
   };
 
   const handleUpdateTransaction = (updated: Transaction) => {
-    setTransactions(prev => prev.map(t => t.id === updated.id ? updated : t));
+    setTransactions(prev => {
+      const old = prev.find(t => t.id === updated.id);
+      logAction({
+        type: 'transaction_update',
+        entityId: updated.id,
+        entityType: 'transaction',
+        entityName: updated.dealName,
+        description: `Updated transaction "${updated.dealName}"`,
+        previousState: old,
+      });
+      return prev.map(t => t.id === updated.id ? updated : t);
+    });
     fetch(`/api/transactions/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
   };
 
   const handleCreateTransaction = (newDeal: Transaction) => {
     setTransactions(prev => [...prev, newDeal]);
+    logAction({
+      type: 'transaction_create',
+      entityId: newDeal.id,
+      entityType: 'transaction',
+      entityName: newDeal.dealName,
+      description: `Created transaction "${newDeal.dealName}"`,
+    });
     setIsNewDealModalOpen(false);
     setSelectedDealId(newDeal.id);
     setCurrentView('detail');
@@ -6311,7 +6574,18 @@ export default function App() {
   };
 
   const handleUpdateLead = (updated: Lead) => {
-    setLeads(prev => prev.map(l => l.id === updated.id ? updated : l));
+    setLeads(prev => {
+      const old = prev.find(l => l.id === updated.id);
+      logAction({
+        type: 'lead_update',
+        entityId: updated.id,
+        entityType: 'lead',
+        entityName: updated.projectName,
+        description: `Updated lead "${updated.projectName}"`,
+        previousState: old,
+      });
+      return prev.map(l => l.id === updated.id ? updated : l);
+    });
     fetch(`/api/leads/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
   };
 
@@ -6361,6 +6635,7 @@ export default function App() {
     setTransactions(prev => prev.map(t => {
       if (t.id !== id) return t;
       const restored = { ...t, isDeleted: false, deletedAt: undefined };
+      logAction({ type: 'transaction_restore', entityId: id, entityType: 'transaction', entityName: t.dealName, description: `Restored transaction "${t.dealName}"` });
       fetch(`/api/transactions/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) }).catch(console.error);
       return restored;
     }));
@@ -6379,6 +6654,7 @@ export default function App() {
     setLeads(prev => prev.map(l => {
       if (l.id !== id) return l;
       const restored = { ...l, isDeleted: false, deletedAt: undefined };
+      logAction({ type: 'lead_restore', entityId: id, entityType: 'lead', entityName: l.projectName, description: `Restored lead "${l.projectName}"` });
       fetch(`/api/leads/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restored) }).catch(console.error);
       return restored;
     }));
@@ -6424,9 +6700,11 @@ export default function App() {
           }
         } else {
           // Soft delete (single or batch)
-          setTransactions(prev => prev.map(t =>
-            ids.includes(t.id) ? { ...t, isDeleted: true, deletedAt: new Date().toISOString() } : t
-          ));
+          setTransactions(prev => {
+            const toDelete = prev.filter(t => ids.includes(t.id));
+            toDelete.forEach(t => logAction({ type: 'transaction_delete', entityId: t.id, entityType: 'transaction', entityName: t.dealName, description: `Moved "${t.dealName}" to trash`, previousState: t }));
+            return prev.map(t => ids.includes(t.id) ? { ...t, isDeleted: true, deletedAt: new Date().toISOString() } : t);
+          });
           fetch('/api/transactions/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
 
           // If the currently viewed deal is deleted, go back to pipeline
@@ -6445,9 +6723,11 @@ export default function App() {
           }
         } else {
           // Soft delete leads
-          setLeads(prev => prev.map(l =>
-            ids.includes(l.id) ? { ...l, isDeleted: true, deletedAt: new Date().toISOString() } : l
-          ));
+          setLeads(prev => {
+            const toDelete = prev.filter(l => ids.includes(l.id));
+            toDelete.forEach(l => logAction({ type: 'lead_delete', entityId: l.id, entityType: 'lead', entityName: l.projectName, description: `Moved lead "${l.projectName}" to trash`, previousState: l }));
+            return prev.map(l => ids.includes(l.id) ? { ...l, isDeleted: true, deletedAt: new Date().toISOString() } : l);
+          });
           fetch('/api/leads/batch-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(console.error);
           if (selectedLeadId && ids.includes(selectedLeadId)) {
             setSelectedLeadId(null);
@@ -6467,7 +6747,30 @@ export default function App() {
     leads.find(l => l.id === selectedLeadId), 
   [leads, selectedLeadId]);
 
-  const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts', icon: any, label: string }) => (
+  const handleUndo = (entry: ActionLogEntry) => {
+    if (!entry.previousState) return;
+    if (entry.entityType === 'transaction') {
+      const prev = entry.previousState as Transaction;
+      if (entry.type === 'transaction_delete') {
+        setTransactions(t => t.map(x => x.id === prev.id ? { ...x, isDeleted: false, deletedAt: undefined } : x));
+      } else if (entry.type === 'transaction_update') {
+        setTransactions(t => t.map(x => x.id === prev.id ? prev : x));
+        fetch(`/api/transactions/${prev.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prev) }).catch(console.error);
+      }
+    } else {
+      const prev = entry.previousState as Lead;
+      if (entry.type === 'lead_delete') {
+        setLeads(l => l.map(x => x.id === prev.id ? { ...x, isDeleted: false, deletedAt: undefined } : x));
+      } else if (entry.type === 'lead_update') {
+        setLeads(l => l.map(x => x.id === prev.id ? prev : x));
+        fetch(`/api/leads/${prev.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prev) }).catch(console.error);
+      }
+    }
+    // Remove the undone entry from the log
+    setActionLog(log => log.filter(e => e.id !== entry.id));
+  };
+
+  const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions', icon: any, label: string }) => (
     <button
       onClick={() => {
         setCurrentView(view);
@@ -6547,7 +6850,8 @@ export default function App() {
             </button>
           </div>
 
-          <div className="mt-auto pt-4 border-t border-slate-100">
+          <div className="mt-auto pt-4 border-t border-slate-100 space-y-1">
+             <NavItem view="recent-actions" icon={History} label="Recent Actions" />
              <NavItem view="deleted" icon={Trash2} label="Recently Deleted" />
           </div>
         </div>
@@ -6599,6 +6903,7 @@ export default function App() {
               <DashboardView
                 transactions={activeTransactions}
                 leads={leads}
+                actionLog={actionLog}
                 onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
                 onAddReminder={handleAddReminder}
@@ -6658,6 +6963,17 @@ export default function App() {
                  onImport={handleImportTransactions} 
                  onImportLeads={handleImportLeads}
                />
+            </div>
+          )}
+
+          {currentView === 'recent-actions' && !selectedDealId && (
+            <div className="animate-in fade-in duration-500">
+              <RecentActionsView
+                actions={actionLog}
+                onSelectDeal={handleSelectDeal}
+                onSelectLead={handleSelectLead}
+                onUndo={handleUndo}
+              />
             </div>
           )}
 
