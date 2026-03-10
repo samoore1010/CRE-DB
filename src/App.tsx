@@ -3598,10 +3598,14 @@ const PipelineView = ({
               <button onClick={() => setViewMode('table')} className={cn("p-2 transition-colors", viewMode === 'table' ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50")} title="Table View">
                 <List className="w-4 h-4" />
               </button>
-              <button onClick={() => setViewMode('kanban')} className={cn("p-2 transition-colors", viewMode === 'kanban' ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50")} title="Kanban View">
-                <Columns3 className="w-4 h-4" />
-              </button>
             </div>
+            <button
+              onClick={() => setViewMode(viewMode === 'kanban' ? 'table' : 'kanban')}
+              className={cn("flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors", viewMode === 'kanban' ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}
+            >
+              <Columns3 className="w-4 h-4" />
+              Update Stages
+            </button>
             <button onClick={exportCSV} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200" title="Export CSV">
               <Download className="w-4 h-4" />
             </button>
@@ -3684,16 +3688,12 @@ const PipelineView = ({
               <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('dealName')}>
                   <div className="flex items-center">Deal Name <SortIcon columnKey="dealName" /></div>
               </th>
-              <th className="px-4 py-3 cursor-pointer hover:text-slate-700" onClick={() => handleSort('buyer')}>
-                  <div className="flex items-center">Buyer <SortIcon columnKey="buyer" /></div>
-              </th>
-              <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('seller')}>
-                  <div className="flex items-center">Seller <SortIcon columnKey="seller" /></div>
-              </th>
               <th className="px-4 py-3 cursor-pointer hover:text-slate-700 text-right bg-slate-50" onClick={() => handleSort('price')}>
                   <div className="flex items-center justify-end">Price <SortIcon columnKey="price" /></div>
               </th>
               <th className="px-4 py-3 text-right bg-slate-50">Gross Comm</th>
+              <th className="px-4 py-3 text-right bg-slate-50">Trey %</th>
+              <th className="px-4 py-3 text-right bg-slate-50">Kirk %</th>
               <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('coeDate')}>
                   <div className="flex items-center">COE Date <SortIcon columnKey="coeDate" /></div>
               </th>
@@ -3730,10 +3730,10 @@ const PipelineView = ({
                       {deal.dealName}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600 max-w-[110px] truncate" title={deal.buyer.name}>{deal.buyer.name || '-'}</td>
-                  <td className="px-4 py-3 text-slate-600 max-w-[110px] truncate" title={deal.seller.name}>{deal.seller.name || '-'}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{formatCurrency(deal.price)}</td>
                   <td className="px-4 py-3 text-right font-mono font-semibold text-emerald-700">{formatCurrency(grossComm)}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{formatPercent(deal.treySplitPercent)}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">{formatPercent(deal.kirkSplitPercent)}</td>
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                     {deal.coeDate ? format(parseISO(deal.coeDate), 'MM/dd/yy') : '-'}
                   </td>
@@ -3767,12 +3767,12 @@ const PipelineView = ({
             return (
               <tfoot className="bg-slate-50 border-t-2 border-slate-200 text-xs font-semibold text-slate-700">
                 <tr>
-                  <td colSpan={6} className="px-4 py-3 text-slate-400 uppercase tracking-wider">
+                  <td colSpan={4} className="px-4 py-3 text-slate-400 uppercase tracking-wider">
                     {filteredData.length} deal{filteredData.length !== 1 ? 's' : ''}
                   </td>
                   <td className="px-4 py-3 text-right font-mono">{formatCurrency(totalPrice)}</td>
                   <td className="px-4 py-3 text-right font-mono text-emerald-700">{formatCurrency(totalGross)}</td>
-                  <td colSpan={2} />
+                  <td colSpan={4} />
                 </tr>
               </tfoot>
             );
