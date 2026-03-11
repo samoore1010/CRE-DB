@@ -221,6 +221,9 @@ interface Lead {
   type: string;
   projectName: string;
   contactName: string;
+  contactRole?: string;
+  contactPhone?: string;
+  contactEmail?: string;
   details: string;
   lastSpokeDate: string;
   summary: string;
@@ -2714,13 +2717,62 @@ const LeadDetailView = ({
                         </div>
 
                         <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Primary Contact</label>
-                            <input 
-                                type="text" 
-                                value={formData.contactName} 
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Primary Contact Name</label>
+                            <input
+                                type="text"
+                                value={formData.contactName}
                                 onChange={e => handleInputChange('contactName', e.target.value)}
                                 className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="Full name"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-medium text-slate-500 mb-1">Role / Title</label>
+                            <input
+                                type="text"
+                                value={formData.contactRole || ''}
+                                onChange={e => handleInputChange('contactRole', e.target.value)}
+                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="e.g. Owner, Broker, CEO"
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                                <div className="flex items-center gap-1">
+                                    <input
+                                        type="tel"
+                                        value={formData.contactPhone || ''}
+                                        onChange={e => handleInputChange('contactPhone', e.target.value)}
+                                        className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                        placeholder="(555) 000-0000"
+                                    />
+                                    {formData.contactPhone && (
+                                        <a href={`tel:${formData.contactPhone}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Call">
+                                            <Phone className="w-4 h-4" />
+                                        </a>
+                                    )}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                                <div className="flex items-center gap-1">
+                                    <input
+                                        type="email"
+                                        value={formData.contactEmail || ''}
+                                        onChange={e => handleInputChange('contactEmail', e.target.value)}
+                                        className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                        placeholder="email@example.com"
+                                    />
+                                    {formData.contactEmail && (
+                                        <a href={`mailto:${formData.contactEmail}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Email">
+                                            <Mail className="w-4 h-4" />
+                                        </a>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3685,55 +3737,49 @@ const PipelineView = ({
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-1">
-                <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide flex-nowrap">
-                <Filter className="w-4 h-4 text-slate-400 mr-1 shrink-0" />
-                {(['LOI', 'Contract', 'Escrow', 'Closed', 'Option'] as const).map(stage => (
-                    <button
-                    key={stage}
-                    onClick={() => toggleStageFilter(stage)}
-                    className={cn(
-                        "px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap border",
-                        selectedStages.has(stage)
-                        ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" 
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-                    )}
-                    >
-                    {stage}
-                    </button>
-                ))}
-                </div>
-                
-                <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-slate-500">Year:</span>
-                    <select
-                        value={filterYear}
-                        onChange={(e) => setFilterYear(e.target.value)}
-                        className="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium hover:bg-slate-50 transition-colors focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    >
-                        <option value="All">All</option>
-                        {uniqueYears.map(year => (
-                            <option key={year} value={year as string}>{year}</option>
-                        ))}
-                    </select>
-                </div>
-
-                {incompleteCount > 0 && (
-                  <button
-                    onClick={() => setIncompleteFilter(!incompleteFilter)}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
-                      incompleteFilter
-                        ? "bg-amber-500 text-white border-amber-500 shadow-sm"
-                        : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
-                    )}
-                  >
-                    <AlertTriangle className="w-3 h-3" />
-                    {incompleteCount} incomplete
-                  </button>
-                )}
-            </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Filter className="w-4 h-4 text-slate-400 mr-1 shrink-0" />
+          {(['LOI', 'Contract', 'Escrow', 'Closed', 'Option'] as const).map(stage => (
+            <button
+              key={stage}
+              onClick={() => toggleStageFilter(stage)}
+              className={cn(
+                "px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap border",
+                selectedStages.has(stage)
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+              )}
+            >
+              {stage}
+            </button>
+          ))}
+          <div className="flex items-center gap-2 ml-1">
+            <span className="text-xs font-medium text-slate-500">Year:</span>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              className="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium hover:bg-slate-50 transition-colors focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+            >
+              <option value="All">All</option>
+              {uniqueYears.map(year => (
+                <option key={year} value={year as string}>{year}</option>
+              ))}
+            </select>
+          </div>
+          {incompleteCount > 0 && (
+            <button
+              onClick={() => setIncompleteFilter(!incompleteFilter)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+                incompleteFilter
+                  ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+                  : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+              )}
+            >
+              <AlertTriangle className="w-3 h-3" />
+              {incompleteCount} incomplete
+            </button>
+          )}
         </div>
       </div>
 
@@ -4204,10 +4250,9 @@ function deriveContacts(transactions: Transaction[], leads: Lead[]): DerivedCont
   for (const l of leads) {
     if (l.isDeleted) continue;
     if (l.contactName) {
-      // Also pull in any lead contacts
       const lc = l.contacts?.find(c => c.name === l.contactName);
-      upsert(l.contactName, undefined, lc?.email, lc?.phone, 'Lead Contact', {
-        type: 'lead', id: l.id, label: l.projectName || l.contactName, role: 'Lead Contact'
+      upsert(l.contactName, undefined, l.contactEmail || lc?.email, l.contactPhone || lc?.phone, l.contactRole || lc?.role || 'Lead Contact', {
+        type: 'lead', id: l.id, label: l.projectName || l.contactName, role: l.contactRole || lc?.role || 'Lead Contact'
       }, l.lastSpokeDate || undefined);
     }
     for (const c of l.contacts || []) {
