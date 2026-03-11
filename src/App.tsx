@@ -51,7 +51,8 @@ import {
   Target,
   Eye,
   BookUser,
-  ChevronLeft
+  ChevronLeft,
+  GitMerge
 } from 'lucide-react';
 import { 
   format, 
@@ -197,7 +198,7 @@ interface LeadReminder {
 }
 
 interface ContactSource {
-  type: 'transaction-buyer' | 'transaction-seller' | 'transaction-party' | 'lead';
+  type: 'transaction-buyer' | 'transaction-seller' | 'transaction-party' | 'lead' | 'standalone';
   id: string;
   label: string;
   role?: string;
@@ -214,6 +215,17 @@ interface DerivedContact {
   primaryRole: string;
   sources: ContactSource[];
   lastActiveDate?: string;
+}
+
+interface StandaloneContact {
+  id: string;
+  name: string;
+  entity?: string;
+  email?: string;
+  phone?: string;
+  primaryRole?: string;
+  notes?: string;
+  createdAt: string;
 }
 
 interface Lead {
@@ -4138,8 +4150,8 @@ const PartiesSummary = ({ transaction }: { transaction: Transaction }) => {
   );
 };
 
-// Helper to derive all contacts from transactions + leads
-function deriveContacts(transactions: Transaction[], leads: Lead[]): DerivedContact[] {
+// Helper to derive all contacts from transactions + leads + standalone contacts
+function deriveContacts(transactions: Transaction[], leads: Lead[], standaloneContacts: StandaloneContact[] = []): DerivedContact[] {
   const map = new Map<string, DerivedContact>();
 
   const key = (name: string, email?: string) =>
@@ -4221,23 +4233,243 @@ function deriveContacts(transactions: Transaction[], leads: Lead[]): DerivedCont
     }
   }
 
+  for (const sc of standaloneContacts) {
+    if (sc.name) {
+      upsert(sc.name, sc.entity, sc.email, sc.phone, sc.primaryRole || 'Contact', {
+        type: 'standalone', id: sc.id, label: sc.name, role: sc.primaryRole || 'Contact'
+      }, sc.createdAt);
+    }
+  }
+
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+const MergeContactsModal = ({
+  contacts,
+  initialKeepId,
+  initialMergeId,
+  onConfirm,
+  onClose,
+}: {
+  contacts: DerivedContact[];
+  initialKeepId?: string;
+  initialMergeId?: string;
+  onConfirm: (keepId: string, mergeId: string) => void;
+  onClose: () => void;
+}) => {
+  const [keepId, setKeepId] = useState(initialKeepId || '');
+  const [mergeId, setMergeId] = useState(initialMergeId || '');
+  const [mergeSearch, setMergeSearch] = useState('');
+
+  const keepContact = contacts.find(c => c.id === keepId);
+  const mergeContact = contacts.find(c => c.id === mergeId);
+
+  const mergeOptions = contacts.filter(c =>
+    c.id !== keepId &&
+    (!mergeSearch || c.name.toLowerCase().includes(mergeSearch.toLowerCase()) ||
+      c.email?.toLowerCase().includes(mergeSearch.toLowerCase()))
+  );
+
+  const canConfirm = keepId && mergeId && keepId !== mergeId;
+
+  const ContactCard = ({ contact, label, side }: { contact: DerivedContact; label: string; side: 'keep' | 'merge' }) => {
+    const initials = contact.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const txCount = contact.sources.filter(s => s.type !== 'lead' && s.type !== 'standalone').length;
+    const leadCount = contact.sources.filter(s => s.type === 'lead').length;
+    return (
+      <div className={cn(
+        "flex-1 rounded-xl border p-4 space-y-3",
+        side === 'keep' ? "border-emerald-300 bg-emerald-50" : "border-red-200 bg-red-50"
+      )}>
+        <p className={cn("text-xs font-semibold uppercase tracking-wider", side === 'keep' ? "text-emerald-700" : "text-red-600")}>
+          {label}
+        </p>
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            "w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0",
+            side === 'keep' ? "bg-emerald-200 text-emerald-800" : "bg-red-200 text-red-800"
+          )}>
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-900 truncate">{contact.name}</p>
+            {contact.entity && <p className="text-xs text-slate-500 truncate">{contact.entity}</p>}
+          </div>
+        </div>
+        <div className="space-y-1 text-xs text-slate-600">
+          {contact.email && <p className="flex items-center gap-1"><Mail className="w-3 h-3 shrink-0" />{contact.email}</p>}
+          {contact.phone && <p className="flex items-center gap-1"><Phone className="w-3 h-3 shrink-0" />{contact.phone}</p>}
+          <p className="text-slate-400 mt-2">
+            {txCount > 0 && `${txCount} deal${txCount !== 1 ? 's' : ''}`}
+            {txCount > 0 && leadCount > 0 && ' · '}
+            {leadCount > 0 && `${leadCount} lead${leadCount !== 1 ? 's' : ''}`}
+            {txCount === 0 && leadCount === 0 && 'No associations'}
+          </p>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-slate-100">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Merge Contacts</h2>
+            <p className="text-sm text-slate-500 mt-0.5">The <span className="font-medium text-emerald-700">kept</span> contact remains; the <span className="font-medium text-red-600">merged</span> contact's records are updated and it is removed.</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Keep contact selector */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Keep (canonical contact)</label>
+            <select
+              value={keepId}
+              onChange={e => { setKeepId(e.target.value); if (e.target.value === mergeId) setMergeId(''); }}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            >
+              <option value="">Select contact to keep…</option>
+              {contacts.map(c => (
+                <option key={c.id} value={c.id}>{c.name}{c.entity ? ` (${c.entity})` : ''}{c.email ? ` — ${c.email}` : ''}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Merge contact selector with search */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Merge (will be removed)</label>
+            <div className="relative mb-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search for contact to merge…"
+                value={mergeSearch}
+                onChange={e => setMergeSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            <div className="border border-slate-200 rounded-lg max-h-40 overflow-y-auto divide-y divide-slate-100">
+              {mergeOptions.length === 0 ? (
+                <p className="text-sm text-slate-400 p-3 text-center">No other contacts found</p>
+              ) : mergeOptions.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setMergeId(c.id)}
+                  className={cn(
+                    "w-full text-left px-3 py-2.5 text-sm transition-colors flex items-center gap-2",
+                    mergeId === c.id ? "bg-red-50 text-red-700 font-medium" : "hover:bg-slate-50 text-slate-700"
+                  )}
+                >
+                  <div className="w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs shrink-0">
+                    {c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="font-medium">{c.name}</span>
+                    {c.entity && <span className="text-slate-400"> · {c.entity}</span>}
+                    {c.email && <span className="text-slate-400"> · {c.email}</span>}
+                  </div>
+                  {mergeId === c.id && <Check className="w-4 h-4 ml-auto shrink-0" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Preview */}
+          {keepContact && mergeContact && (
+            <div className="flex gap-3">
+              <ContactCard contact={keepContact} label="Keep" side="keep" />
+              <div className="flex items-center text-slate-400 font-bold text-lg self-center">→</div>
+              <ContactCard contact={mergeContact} label="Merge In" side="merge" />
+            </div>
+          )}
+
+          {keepContact && mergeContact && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+              <strong>What will happen:</strong> All deals and leads referencing <em>{mergeContact.name}</em> will be updated to show <em>{keepContact.name}</em>. The merged contact will be removed from the contacts list.
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 p-6 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={() => canConfirm && onConfirm(keepId, mergeId)}
+            disabled={!canConfirm}
+            className={cn(
+              "px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+              canConfirm
+                ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                : "bg-slate-100 text-slate-400 cursor-not-allowed"
+            )}
+          >
+            Confirm Merge
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ContactDetailView = ({
   contact,
+  allContacts,
   onBack,
   onSelectDeal,
   onSelectLead,
+  onUpdateStandaloneContact,
+  onAddStandaloneContact,
+  onMerge,
 }: {
   contact: DerivedContact;
+  allContacts: DerivedContact[];
   onBack: () => void;
   onSelectDeal: (id: string) => void;
   onSelectLead: (id: string) => void;
+  onUpdateStandaloneContact?: (c: StandaloneContact) => void;
+  onAddStandaloneContact?: (c: StandaloneContact) => void;
+  onMerge?: (keepId: string, mergeId: string) => void;
 }) => {
-  const txSources = contact.sources.filter(s => s.type !== 'lead');
+  const txSources = contact.sources.filter(s => s.type !== 'lead' && s.type !== 'standalone');
   const leadSources = contact.sources.filter(s => s.type === 'lead');
+  const standaloneSource = contact.sources.find(s => s.type === 'standalone');
   const initials = contact.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [editData, setEditData] = useState({
+    name: contact.name,
+    entity: contact.entity || '',
+    email: contact.email || '',
+    phone: contact.phone || '',
+    primaryRole: contact.primaryRole,
+    notes: '',
+  });
+
+  const handleSaveEdit = () => {
+    if (!editData.name.trim()) return;
+    const updated: StandaloneContact = {
+      id: standaloneSource?.id || Math.random().toString(36).substr(2, 9),
+      name: editData.name.trim(),
+      entity: editData.entity.trim() || undefined,
+      email: editData.email.trim() || undefined,
+      phone: editData.phone.trim() || undefined,
+      primaryRole: editData.primaryRole.trim() || undefined,
+      notes: editData.notes.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    if (standaloneSource && onUpdateStandaloneContact) {
+      onUpdateStandaloneContact(updated);
+    } else if (onAddStandaloneContact) {
+      onAddStandaloneContact(updated);
+    }
+    setIsEditing(false);
+  };
 
   return (
     <div className="animate-in fade-in duration-300 space-y-6">
@@ -4253,32 +4485,103 @@ const ContactDetailView = ({
             {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-slate-900">{contact.name}</h1>
-            {contact.entity && <p className="text-slate-500 text-sm mt-0.5">{contact.entity}</p>}
-            <div className="flex flex-wrap gap-3 mt-3">
-              <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full">{contact.primaryRole}</span>
-              {contact.sources.length > 1 && (
-                <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs rounded-full">{contact.sources.length} associations</span>
+            {isEditing ? (
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={editData.name}
+                  onChange={e => setEditData(d => ({ ...d, name: e.target.value }))}
+                  placeholder="Full name"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={editData.entity}
+                    onChange={e => setEditData(d => ({ ...d, entity: e.target.value }))}
+                    placeholder="Company / Entity"
+                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <input
+                    type="text"
+                    value={editData.primaryRole}
+                    onChange={e => setEditData(d => ({ ...d, primaryRole: e.target.value }))}
+                    placeholder="Role (e.g. Buyer, Broker)"
+                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <input
+                    type="email"
+                    value={editData.email}
+                    onChange={e => setEditData(d => ({ ...d, email: e.target.value }))}
+                    placeholder="Email"
+                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <input
+                    type="tel"
+                    value={editData.phone}
+                    onChange={e => setEditData(d => ({ ...d, phone: e.target.value }))}
+                    placeholder="Phone"
+                    className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSaveEdit} className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">Save</button>
+                  <button onClick={() => setIsEditing(false)} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold text-slate-900">{contact.name}</h1>
+                {contact.entity && <p className="text-slate-500 text-sm mt-0.5">{contact.entity}</p>}
+                <div className="flex flex-wrap gap-3 mt-3">
+                  <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-full">{contact.primaryRole}</span>
+                  {contact.sources.length > 1 && (
+                    <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs rounded-full">{contact.sources.length} associations</span>
+                  )}
+                  {standaloneSource && (
+                    <span className="px-2.5 py-1 bg-violet-50 text-violet-700 text-xs rounded-full">Saved contact</span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          {!isEditing && (
+            <div className="flex gap-2 shrink-0">
+              <button
+                onClick={() => { setEditData({ name: contact.name, entity: contact.entity || '', email: contact.email || '', phone: contact.phone || '', primaryRole: contact.primaryRole, notes: '' }); setIsEditing(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                <Edit2 className="w-3.5 h-3.5" /> Edit
+              </button>
+              {onMerge && (
+                <button
+                  onClick={() => setShowMergeModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  <GitMerge className="w-3.5 h-3.5" /> Merge
+                </button>
               )}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Contact info */}
-        <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="flex items-center gap-2">
-            <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-            {contact.email
-              ? <a href={`mailto:${contact.email}`} className="text-sm text-indigo-600 hover:underline">{contact.email}</a>
-              : <span className="text-sm text-slate-400 italic">No email on file</span>}
+        {!isEditing && (
+          <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center gap-2">
+              <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+              {contact.email
+                ? <a href={`mailto:${contact.email}`} className="text-sm text-indigo-600 hover:underline">{contact.email}</a>
+                : <span className="text-sm text-slate-400 italic">No email on file</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Phone className="w-4 h-4 text-slate-400 shrink-0" />
+              {contact.phone
+                ? <a href={`tel:${contact.phone}`} className="text-sm text-indigo-600 hover:underline">{contact.phone}</a>
+                : <span className="text-sm text-slate-400 italic">No phone on file</span>}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-            {contact.phone
-              ? <a href={`tel:${contact.phone}`} className="text-sm text-indigo-600 hover:underline">{contact.phone}</a>
-              : <span className="text-sm text-slate-400 italic">No phone on file</span>}
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Transactions */}
@@ -4346,6 +4649,15 @@ const ContactDetailView = ({
           </div>
         </div>
       )}
+
+      {showMergeModal && onMerge && (
+        <MergeContactsModal
+          contacts={allContacts}
+          initialKeepId={contact.id}
+          onConfirm={(keepId, mergeId) => { onMerge(keepId, mergeId); setShowMergeModal(false); }}
+          onClose={() => setShowMergeModal(false)}
+        />
+      )}
     </div>
   );
 };
@@ -4357,6 +4669,9 @@ const ContactsView = ({
   onBack,
   onSelectDeal,
   onSelectLead,
+  onAddContact,
+  onUpdateContact,
+  onMerge,
 }: {
   contacts: DerivedContact[];
   selectedContactId: string | null;
@@ -4364,9 +4679,16 @@ const ContactsView = ({
   onBack: () => void;
   onSelectDeal: (id: string) => void;
   onSelectLead: (id: string) => void;
+  onAddContact?: (c: StandaloneContact) => void;
+  onUpdateContact?: (c: StandaloneContact) => void;
+  onMerge?: (keepId: string, mergeId: string) => void;
 }) => {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'Buyer' | 'Seller' | 'Other' | 'Lead Contact'>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [newContact, setNewContact] = useState({ name: '', entity: '', email: '', phone: '', primaryRole: '' });
 
   const selectedContact = contacts.find(c => c.id === selectedContactId);
 
@@ -4374,9 +4696,13 @@ const ContactsView = ({
     return (
       <ContactDetailView
         contact={selectedContact}
+        allContacts={contacts}
         onBack={onBack}
         onSelectDeal={onSelectDeal}
         onSelectLead={onSelectLead}
+        onUpdateStandaloneContact={onUpdateContact}
+        onAddStandaloneContact={onAddContact}
+        onMerge={onMerge}
       />
     );
   }
@@ -4392,12 +4718,112 @@ const ContactsView = ({
     return matchesSearch && matchesRole;
   });
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleAddContact = () => {
+    if (!newContact.name.trim() || !onAddContact) return;
+    onAddContact({
+      id: Math.random().toString(36).substr(2, 9),
+      name: newContact.name.trim(),
+      entity: newContact.entity.trim() || undefined,
+      email: newContact.email.trim() || undefined,
+      phone: newContact.phone.trim() || undefined,
+      primaryRole: newContact.primaryRole.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    });
+    setNewContact({ name: '', entity: '', email: '', phone: '', primaryRole: '' });
+    setShowAddForm(false);
+  };
+
+  const mergePreselectedIds = Array.from<string>(selectedIds).slice(0, 2);
+
   return (
     <div className="animate-in fade-in duration-300 space-y-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-slate-900">Contacts</h1>
-        <p className="text-slate-500">All contacts across your pipeline and leads.</p>
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Contacts</h1>
+          <p className="text-slate-500">All contacts across your pipeline and leads.</p>
+        </div>
+        <div className="flex gap-2">
+          {selectedIds.size === 2 && onMerge && (
+            <button
+              onClick={() => setShowMergeModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              <GitMerge className="w-4 h-4" /> Merge Selected ({selectedIds.size})
+            </button>
+          )}
+          {selectedIds.size > 0 && selectedIds.size !== 2 && (
+            <span className="text-xs text-slate-500 self-center">{selectedIds.size === 1 ? 'Select 1 more to merge' : 'Select exactly 2 to merge'}</span>
+          )}
+          {onAddContact && (
+            <button
+              onClick={() => setShowAddForm(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 bg-white text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              <Plus className="w-4 h-4" /> New Contact
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Add contact form */}
+      {showAddForm && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+          <h3 className="text-sm font-semibold text-slate-900">New Contact</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input
+              type="text"
+              placeholder="Full name *"
+              value={newContact.name}
+              onChange={e => setNewContact(d => ({ ...d, name: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <input
+              type="text"
+              placeholder="Company / Entity"
+              value={newContact.entity}
+              onChange={e => setNewContact(d => ({ ...d, entity: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <input
+              type="email"
+              placeholder="Email"
+              value={newContact.email}
+              onChange={e => setNewContact(d => ({ ...d, email: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <input
+              type="tel"
+              placeholder="Phone"
+              value={newContact.phone}
+              onChange={e => setNewContact(d => ({ ...d, phone: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <input
+              type="text"
+              placeholder="Role (e.g. Buyer, Broker, Lender)"
+              value={newContact.primaryRole}
+              onChange={e => setNewContact(d => ({ ...d, primaryRole: e.target.value }))}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:col-span-2"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleAddContact} disabled={!newContact.name.trim()} className={cn("px-4 py-2 text-sm font-medium rounded-lg transition-colors", newContact.name.trim() ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-slate-100 text-slate-400 cursor-not-allowed")}>
+              Save Contact
+            </button>
+            <button onClick={() => setShowAddForm(false)} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -4428,52 +4854,88 @@ const ContactsView = ({
         <span className="text-xs text-slate-500 ml-auto">{filtered.length} contacts</span>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-2 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+          <Check className="w-3.5 h-3.5" />
+          <span>{selectedIds.size} selected — check 2 contacts to merge them</span>
+          <button onClick={() => setSelectedIds(new Set())} className="ml-auto text-indigo-500 hover:text-indigo-700 font-medium">Clear</button>
+        </div>
+      )}
+
       {/* Contact list */}
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
           <Users className="w-8 h-8 text-slate-300 mx-auto mb-3" />
           <p className="text-slate-500 font-medium">No contacts found</p>
-          <p className="text-slate-400 text-sm mt-1">Contacts are automatically pulled from your deals and leads.</p>
+          <p className="text-slate-400 text-sm mt-1">Contacts are automatically pulled from your deals and leads, or add one manually.</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="divide-y divide-slate-100">
             {filtered.map(contact => {
               const initials = contact.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-              const txCount = contact.sources.filter(s => s.type !== 'lead').length;
+              const txCount = contact.sources.filter(s => s.type !== 'lead' && s.type !== 'standalone').length;
               const leadCount = contact.sources.filter(s => s.type === 'lead').length;
+              const isSelected = selectedIds.has(contact.id);
+              const isStandalone = contact.sources.some(s => s.type === 'standalone');
               return (
-                <button
+                <div
                   key={contact.id}
-                  onClick={() => onSelectContact(contact.id)}
-                  className="w-full text-left px-6 py-4 hover:bg-slate-50 transition-colors flex items-center gap-4"
+                  className={cn("flex items-center gap-3 px-4 py-4 hover:bg-slate-50 transition-colors", isSelected && "bg-indigo-50")}
                 >
-                  <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
-                    {initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-slate-900 truncate">{contact.name}</p>
-                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-xs rounded shrink-0">{contact.primaryRole}</span>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => toggleSelect(contact.id)}
+                    onClick={e => e.stopPropagation()}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 shrink-0 cursor-pointer"
+                  />
+                  <button
+                    onClick={() => onSelectContact(contact.id)}
+                    className="flex-1 text-left flex items-center gap-4 min-w-0"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
+                      {initials}
                     </div>
-                    {contact.entity && <p className="text-xs text-slate-500 truncate">{contact.entity}</p>}
-                    <div className="flex items-center gap-3 mt-1">
-                      {contact.email && <p className="text-xs text-slate-400 truncate flex items-center gap-1"><Mail className="w-3 h-3" /> {contact.email}</p>}
-                      {contact.phone && <p className="text-xs text-slate-400 flex items-center gap-1"><Phone className="w-3 h-3" /> {contact.phone}</p>}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-slate-900 truncate">{contact.name}</p>
+                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-xs rounded shrink-0">{contact.primaryRole}</span>
+                        {isStandalone && <span className="px-1.5 py-0.5 bg-violet-50 text-violet-600 text-xs rounded shrink-0">saved</span>}
+                      </div>
+                      {contact.entity && <p className="text-xs text-slate-500 truncate">{contact.entity}</p>}
+                      <div className="flex items-center gap-3 mt-1">
+                        {contact.email && <p className="text-xs text-slate-400 truncate flex items-center gap-1"><Mail className="w-3 h-3" /> {contact.email}</p>}
+                        {contact.phone && <p className="text-xs text-slate-400 flex items-center gap-1"><Phone className="w-3 h-3" /> {contact.phone}</p>}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 text-right">
-                    <div className="text-xs text-slate-400">
-                      {txCount > 0 && <span className="block">{txCount} deal{txCount !== 1 ? 's' : ''}</span>}
-                      {leadCount > 0 && <span className="block">{leadCount} lead{leadCount !== 1 ? 's' : ''}</span>}
+                    <div className="flex items-center gap-2 shrink-0 text-right">
+                      <div className="text-xs text-slate-400">
+                        {txCount > 0 && <span className="block">{txCount} deal{txCount !== 1 ? 's' : ''}</span>}
+                        {leadCount > 0 && <span className="block">{leadCount} lead{leadCount !== 1 ? 's' : ''}</span>}
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
-                  </div>
-                </button>
+                  </button>
+                </div>
               );
             })}
           </div>
         </div>
+      )}
+
+      {showMergeModal && onMerge && (
+        <MergeContactsModal
+          contacts={contacts}
+          initialKeepId={mergePreselectedIds[0]}
+          initialMergeId={mergePreselectedIds[1]}
+          onConfirm={(keepId, mergeId) => {
+            onMerge(keepId, mergeId);
+            setSelectedIds(new Set());
+            setShowMergeModal(false);
+          }}
+          onClose={() => setShowMergeModal(false)}
+        />
       )}
     </div>
   );
@@ -6598,6 +7060,7 @@ export default function App() {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
+  const [standaloneContacts, setStandaloneContacts] = useState<StandaloneContact[]>([]);
   const [darkMode, setDarkMode] = useState(false);
   const [actionLog, setActionLog] = useState<ActionLogEntry[]>(() => {
     try {
@@ -6678,7 +7141,7 @@ export default function App() {
   const deletedTransactions = useMemo(() => transactions.filter(t => t.isDeleted), [transactions]);
   const activeLeads = useMemo(() => leads.filter(l => !l.isDeleted), [leads]);
   const deletedLeads = useMemo(() => leads.filter(l => l.isDeleted), [leads]);
-  const allContacts = useMemo(() => deriveContacts(activeTransactions, activeLeads), [activeTransactions, activeLeads]);
+  const allContacts = useMemo(() => deriveContacts(activeTransactions, activeLeads, standaloneContacts), [activeTransactions, activeLeads, standaloneContacts]);
 
   const handleSelectDeal = (id: string) => {
     setSelectedDealId(id);
@@ -6700,6 +7163,99 @@ export default function App() {
     setSelectedContactId(contactId);
     setCurrentView('contacts');
     setIsMobileMenuOpen(false);
+  };
+
+  const handleAddStandaloneContact = (contact: StandaloneContact) => {
+    setStandaloneContacts(prev => [...prev, contact]);
+  };
+
+  const handleUpdateStandaloneContact = (contact: StandaloneContact) => {
+    setStandaloneContacts(prev => prev.map(c => c.id === contact.id ? contact : c));
+  };
+
+  const handleDeleteStandaloneContact = (id: string) => {
+    setStandaloneContacts(prev => prev.filter(c => c.id !== id));
+  };
+
+  // Merge keepId contact into mergingId: update all source records then remove merged contact
+  const handleMergeContacts = (keepId: string, mergingId: string) => {
+    const keepContact = allContacts.find(c => c.id === keepId);
+    const mergingContact = allContacts.find(c => c.id === mergingId);
+    if (!keepContact || !mergingContact) return;
+
+    const matchesContact = (name: string, email?: string) => {
+      const nameLower = name.trim().toLowerCase();
+      const emailLower = email?.trim().toLowerCase();
+      return (
+        nameLower === mergingContact.name.trim().toLowerCase() ||
+        (emailLower && mergingContact.email && emailLower === mergingContact.email.trim().toLowerCase())
+      );
+    };
+
+    // Update transactions: replace merging contact's party data with keep contact's data
+    setTransactions(prev => prev.map(t => {
+      let changed = false;
+      const updateParty = (p: Party): Party => {
+        if (matchesContact(p.name, p.email)) {
+          changed = true;
+          return {
+            ...p,
+            name: keepContact.name,
+            entity: keepContact.entity || p.entity,
+            email: keepContact.email || p.email,
+            phone: keepContact.phone || p.phone,
+          };
+        }
+        return p;
+      };
+      const newBuyer = updateParty(t.buyer);
+      const newSeller = updateParty(t.seller);
+      const newOtherParties = t.otherParties.map(updateParty);
+      if (!changed) return t;
+      return { ...t, buyer: newBuyer, seller: newSeller, otherParties: newOtherParties };
+    }));
+
+    // Update leads: replace merging contact references with keep contact's data
+    setLeads(prev => prev.map(l => {
+      let changed = false;
+      let newLead = { ...l };
+      if (l.contactName && matchesContact(l.contactName, l.contactEmail)) {
+        newLead = {
+          ...newLead,
+          contactName: keepContact.name,
+          contactEmail: keepContact.email || l.contactEmail,
+          contactPhone: keepContact.phone || l.contactPhone,
+        };
+        changed = true;
+      }
+      const newContacts = (l.contacts || []).map(c => {
+        if (matchesContact(c.name, c.email)) {
+          changed = true;
+          return {
+            ...c,
+            name: keepContact.name,
+            email: keepContact.email || c.email,
+            phone: keepContact.phone || c.phone,
+          };
+        }
+        return c;
+      });
+      if (!changed) return l;
+      return { ...newLead, contacts: newContacts };
+    }));
+
+    // Remove merged contact from standalone contacts if present
+    setStandaloneContacts(prev => prev.filter(c => {
+      const nameLower = c.name.trim().toLowerCase();
+      const emailLower = c.email?.trim().toLowerCase();
+      return !(
+        nameLower === mergingContact.name.trim().toLowerCase() ||
+        (emailLower && mergingContact.email && emailLower === mergingContact.email.trim().toLowerCase())
+      );
+    }));
+
+    // Navigate to the kept contact
+    setSelectedContactId(keepId);
   };
 
   const handleUpdateTransaction = (updated: Transaction) => {
@@ -7143,6 +7699,9 @@ export default function App() {
                 onBack={() => setSelectedContactId(null)}
                 onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
+                onAddContact={handleAddStandaloneContact}
+                onUpdateContact={handleUpdateStandaloneContact}
+                onMerge={handleMergeContacts}
               />
             </div>
           )}
