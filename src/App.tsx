@@ -1321,7 +1321,7 @@ const DataManagementView = ({
   );
 };
 
-const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, darkMode?: boolean }) => {
+const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, darkMode?: boolean }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showQuickReminder, setShowQuickReminder] = useState(false);
   const [quickReminderTarget, setQuickReminderTarget] = useState<{ id: string, type: 'transaction' | 'lead' }>({ id: '', type: 'transaction' });
@@ -1668,7 +1668,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
     <div className="space-y-6 max-w-[1600px] mx-auto">
       {/* Bento Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-lg flex flex-col justify-between min-h-[160px]">
+        <div onClick={() => onNavigate?.('pipeline')} className="bg-slate-900 rounded-2xl p-6 text-white shadow-lg flex flex-col justify-between min-h-[160px] cursor-pointer hover:ring-2 hover:ring-indigo-400 transition-all">
             <div>
                 <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Active Pipeline Value</p>
                 <h3 className="text-3xl font-bold tracking-tight">{formatCurrency(metrics.activePipelineValue)}</h3>
@@ -1679,7 +1679,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
             </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between min-h-[160px]">
+        <div onClick={() => onNavigate?.('pipeline')} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between min-h-[160px] cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all">
             <div>
                 <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Active Pipeline</p>
                 <div className="flex items-baseline gap-2">
@@ -1691,12 +1691,12 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
                 {Object.entries(pipelineHealth).map(([stage, count]) => (
                     <div key={stage} className="flex flex-col">
                         <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
+                            <div
                                 className={cn(
                                     "h-full rounded-full",
                                     stage === 'Escrow' ? "bg-emerald-500" : stage === 'Contract' ? "bg-indigo-500" : "bg-amber-500"
-                                )} 
-                                style={{ width: `${((count as number) / metrics.activeCount) * 100}%` }} 
+                                )}
+                                style={{ width: `${((count as number) / metrics.activeCount) * 100}%` }}
                             />
                         </div>
                         <span className="text-[10px] text-slate-400 mt-1 truncate">{stage}</span>
@@ -1705,7 +1705,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
             </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between min-h-[160px]">
+        <div onClick={() => onNavigate?.('leads')} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between min-h-[160px] cursor-pointer hover:border-indigo-300 hover:shadow-md transition-all">
             <div>
                 <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Lead Engagement</p>
                 <div className="flex items-baseline gap-2">
@@ -1717,12 +1717,12 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
                 {Object.entries(leadHealth).map(([stage, count]) => (
                     <div key={stage} className="flex flex-col">
                         <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
+                            <div
                                 className={cn(
                                     "h-full rounded-full",
                                     stage === 'Converted Lead' ? "bg-emerald-500" : stage === 'Live Contract' ? "bg-indigo-500" : stage === 'True Lead' ? "bg-amber-500" : "bg-slate-400"
-                                )} 
-                                style={{ width: `${((count as number) / metrics.leadCount) * 100}%` }} 
+                                )}
+                                style={{ width: `${((count as number) / metrics.leadCount) * 100}%` }}
                             />
                         </div>
                         <span className="text-[10px] text-slate-400 mt-1 truncate">{stage === 'Converted Lead' ? 'Converted' : stage === 'Live Contract' ? 'Contract' : stage === 'True Lead' ? 'Lead' : 'Dead'}</span>
@@ -1731,7 +1731,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
             </div>
         </div>
 
-        <div className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg flex flex-col justify-between min-h-[160px]">
+        <div onClick={() => onNavigate?.('pipeline')} className="bg-indigo-600 rounded-2xl p-6 text-white shadow-lg flex flex-col justify-between min-h-[160px] cursor-pointer hover:bg-indigo-700 transition-all">
             <div>
                 <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-1">Projected Commission</p>
                 <h3 className="text-3xl font-bold tracking-tight">{formatCurrency(metrics.projectedTrey + metrics.projectedKirk)}</h3>
@@ -2619,60 +2619,69 @@ const LeadDetailView = ({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-right-4 duration-300 flex flex-col h-[calc(100vh-140px)]">
-      {/* Header */}
-      <div className="border-b border-slate-200 bg-slate-50 p-4 flex items-center justify-between sticky top-0 z-10 shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-lg text-slate-500 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h2 className="font-bold text-slate-900 text-lg">{formData.projectName || 'Untitled Lead'}</h2>
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <span className={cn(
-                "w-2 h-2 rounded-full",
-                formData.type.includes('Converted') ? "bg-emerald-500" :
-                formData.type.includes('Live') ? "bg-blue-500" :
-                formData.type.includes('True') ? "bg-amber-500" :
-                "bg-slate-400"
-              )} />
-              {formData.type}
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Header Card — mirrors TransactionDetailView */}
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors shrink-0">
+              <ChevronRight className="w-5 h-5 rotate-180" />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-slate-900 truncate">{formData.projectName || 'Untitled Lead'}</h1>
+              <div className="flex items-center gap-2 text-sm text-slate-500 mt-0.5">
+                <span className={cn(
+                  "w-2 h-2 rounded-full shrink-0",
+                  formData.type.includes('Converted') ? "bg-emerald-500" :
+                  formData.type.includes('Live') ? "bg-blue-500" :
+                  formData.type.includes('True') ? "bg-amber-500" :
+                  "bg-slate-400"
+                )} />
+                <span className="truncate">{formData.type}</span>
+                {formData.contactName && (
+                  <><span className="text-slate-300">·</span><span className="truncate">{formData.contactName}</span></>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {showSaveSuccess && (
-            <span className="text-sm text-emerald-600 font-medium animate-in fade-in">Saved!</span>
-          )}
-          <button 
-            onClick={handleSave}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-          >
-            <Save className="w-4 h-4" />
-            Save Changes
-          </button>
+          <div className="flex items-center gap-2 sm:shrink-0">
+            {showSaveSuccess && (
+              <span className="text-sm text-emerald-600 font-medium animate-in fade-in">Saved!</span>
+            )}
+            <button
+              onClick={handleSave}
+              className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+              <Save className="w-4 h-4" />
+              Save Changes
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Mobile Tab Bar */}
-      <div className="flex border-b border-slate-200 bg-white md:hidden shrink-0">
+      {/* Tab bar — same style as TransactionDetailView */}
+      <div className="flex border-b border-slate-200 gap-6 px-2 overflow-x-auto">
         {([['info', 'Info & Contacts'], ['activity', 'Activity'], ['details', 'Reminders']] as const).map(([tab, label]) => (
           <button
             key={tab}
             onClick={() => setMobileLeadTab(tab)}
             className={cn(
-              "flex-1 py-3 text-sm font-medium transition-colors relative",
+              "pb-3 text-sm font-medium transition-colors relative whitespace-nowrap",
               mobileLeadTab === tab ? "text-indigo-600" : "text-slate-500 hover:text-slate-700"
             )}
           >
             {label}
-            {mobileLeadTab === tab && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />}
+            {mobileLeadTab === tab && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-t-full" />
+            )}
           </button>
         ))}
       </div>
 
-      <div className="flex-1 overflow-hidden">
-        <div className="h-full grid grid-cols-1 md:grid-cols-3 divide-x divide-slate-200">
+      {/* Content grid */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-200">
+
             {/* Left Column: Info & Contacts */}
             <div className={cn("md:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'info' ? "hidden md:block" : "")}>
                 <div className="space-y-4">
@@ -2794,7 +2803,7 @@ const LeadDetailView = ({
             </div>
 
             {/* Middle Column: Activity Timeline */}
-            <div className={cn("md:col-span-1 overflow-y-auto p-6 bg-white flex flex-col", mobileLeadTab !== 'activity' ? "hidden md:flex" : "")}>
+            <div className={cn("md:col-span-1 overflow-y-auto p-6 bg-white flex flex-col min-h-[400px]", mobileLeadTab !== 'activity' ? "hidden md:flex" : "")}>
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <History className="w-4 h-4" /> Activity Timeline
                 </h3>
@@ -2875,7 +2884,7 @@ const LeadDetailView = ({
             </div>
 
             {/* Right Column: Reminders & Details */}
-            <div className={cn("md:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'details' ? "hidden md:block" : "")}>
+            <div className={cn("md:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50 min-h-[400px]", mobileLeadTab !== 'details' ? "hidden md:block" : "")}>
                 {/* Reminders Widget */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
@@ -3636,23 +3645,15 @@ const PipelineView = ({
     <div className="space-y-4">
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="p-4 border-b border-slate-200 flex flex-col gap-4 bg-slate-50">
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-          <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+      <div className="p-4 border-b border-slate-200 flex flex-col gap-3 bg-slate-50">
+        {/* Row 1: Title + action buttons */}
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-semibold text-slate-900 flex items-center gap-2 shrink-0">
             <List className="w-5 h-5 text-slate-500" />
-            All Transactions
+            <span className="hidden sm:inline">All Transactions</span>
+            <span className="sm:hidden">Transactions</span>
           </h2>
           <div className="flex items-center gap-2">
-            <div className="relative w-full sm:w-52">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search deals..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
             <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden">
               <button onClick={() => setViewMode('table')} className={cn("p-2 transition-colors", viewMode === 'table' ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50")} title="Table View">
                 <List className="w-4 h-4" />
@@ -3661,21 +3662,33 @@ const PipelineView = ({
             <button
               onClick={() => setViewMode(viewMode === 'kanban' ? 'table' : 'kanban')}
               className={cn("flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors", viewMode === 'kanban' ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}
+              title="Update Stages (Kanban)"
             >
               <Columns3 className="w-4 h-4" />
-              Update Stages
+              <span className="hidden sm:inline">Update Stages</span>
             </button>
             <button onClick={exportCSV} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200" title="Export CSV">
               <Download className="w-4 h-4" />
             </button>
           </div>
         </div>
+        {/* Row 2: Search (full-width on mobile) */}
+        <div className="relative w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search deals..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          />
+        </div>
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-1">
-                <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide">
-                <Filter className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide flex-nowrap">
+                <Filter className="w-4 h-4 text-slate-400 mr-1 shrink-0" />
                 {(['LOI', 'Contract', 'Escrow', 'Closed', 'Option'] as const).map(stage => (
                     <button
                     key={stage}
@@ -7039,6 +7052,7 @@ export default function App() {
                 onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
                 onAddReminder={handleAddReminder}
+                onNavigate={setCurrentView}
                 darkMode={darkMode}
               />
             </div>
