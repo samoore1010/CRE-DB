@@ -2272,7 +2272,56 @@ const LeadsView = ({
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
+          {/* Mobile card list */}
+          <div className="block sm:hidden divide-y divide-slate-100">
+            {pagedLeads.length === 0 && (
+              <div className="p-8 text-center text-slate-500 text-sm">No leads found.</div>
+            )}
+            {pagedLeads.map((lead) => {
+              const missingFields = getMissingLeadFields(lead);
+              return (
+                <div
+                  key={lead.id}
+                  onClick={() => onSelectLead(lead.id)}
+                  className={cn(
+                    "p-4 hover:bg-slate-50 cursor-pointer transition-colors",
+                    missingFields.length > 0 && "border-l-2 border-l-amber-300"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <span className="font-semibold text-slate-900">{lead.projectName}</span>
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0",
+                      lead.type.includes('Converted') ? "bg-emerald-100 text-emerald-700" :
+                      lead.type.includes('Live') ? "bg-blue-100 text-blue-700" :
+                      lead.type.includes('True') ? "bg-amber-100 text-amber-700" :
+                      "bg-slate-100 text-slate-600"
+                    )}>
+                      {lead.type}
+                    </span>
+                  </div>
+                  <div className="text-sm text-slate-600 mb-1">{lead.contactName}</div>
+                  <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                    {(() => {
+                      if (!lead.lastSpokeDate) return <span>Never contacted</span>;
+                      const days = Math.floor((new Date().getTime() - parseISO(lead.lastSpokeDate).getTime()) / 86400000);
+                      const label = days === 0 ? 'Today' : days === 1 ? '1d ago' : `${days}d ago`;
+                      const color = days <= 7 ? 'bg-emerald-50 text-emerald-700' : days <= 30 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
+                      return <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold", color)}>{label}</span>;
+                    })()}
+                    {lead.details && <span className="truncate max-w-[200px]">{lead.details}</span>}
+                  </div>
+                </div>
+              );
+            })}
+            {leadsTotalPages > 1 && (
+              <div className="border-t border-slate-200 px-4 py-2">
+                <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
+              </div>
+            )}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto max-h-[70vh] overflow-y-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 sticky top-0 z-10">
               <tr>
@@ -2379,7 +2428,7 @@ const LeadsView = ({
               <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
             </div>
           )}
-        </div>
+          </div>
         {filteredLeads.length === 0 && (
           <div className="p-12 text-center text-slate-500">
             <p>No leads found matching your search.</p>
@@ -2606,7 +2655,7 @@ const LeadDetailView = ({
       </div>
 
       {/* Mobile Tab Bar */}
-      <div className="flex border-b border-slate-200 bg-white lg:hidden shrink-0">
+      <div className="flex border-b border-slate-200 bg-white md:hidden shrink-0">
         {([['info', 'Info & Contacts'], ['activity', 'Activity'], ['details', 'Reminders']] as const).map(([tab, label]) => (
           <button
             key={tab}
@@ -2623,9 +2672,9 @@ const LeadDetailView = ({
       </div>
 
       <div className="flex-1 overflow-hidden">
-        <div className="h-full grid grid-cols-1 lg:grid-cols-3 divide-x divide-slate-200">
+        <div className="h-full grid grid-cols-1 md:grid-cols-3 divide-x divide-slate-200">
             {/* Left Column: Info & Contacts */}
-            <div className={cn("lg:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'info' ? "hidden lg:block" : "")}>
+            <div className={cn("md:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'info' ? "hidden md:block" : "")}>
                 <div className="space-y-4">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                         <Users className="w-4 h-4" /> Lead Information
@@ -2745,7 +2794,7 @@ const LeadDetailView = ({
             </div>
 
             {/* Middle Column: Activity Timeline */}
-            <div className={cn("lg:col-span-1 overflow-y-auto p-6 bg-white flex flex-col", mobileLeadTab !== 'activity' ? "hidden lg:flex" : "")}>
+            <div className={cn("md:col-span-1 overflow-y-auto p-6 bg-white flex flex-col", mobileLeadTab !== 'activity' ? "hidden md:flex" : "")}>
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <History className="w-4 h-4" /> Activity Timeline
                 </h3>
@@ -2826,7 +2875,7 @@ const LeadDetailView = ({
             </div>
 
             {/* Right Column: Reminders & Details */}
-            <div className={cn("lg:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'details' ? "hidden lg:block" : "")}>
+            <div className={cn("md:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'details' ? "hidden md:block" : "")}>
                 {/* Reminders Widget */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
@@ -3677,7 +3726,48 @@ const PipelineView = ({
 
       {/* Table View */}
       {viewMode === 'table' && (
-      <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
+        <>
+          {/* Mobile card list */}
+          <div className="block sm:hidden divide-y divide-slate-100">
+            {pagedData.length === 0 && (
+              <div className="p-8 text-center text-slate-500 text-sm">No transactions found.</div>
+            )}
+            {pagedData.map((deal) => {
+              const grossComm = deal.price * (deal.grossCommissionPercent / 100);
+              const missingFields = getMissingTransactionFields(deal);
+              return (
+                <div
+                  key={deal.id}
+                  onClick={() => onSelectDeal(deal.id)}
+                  className={cn(
+                    "p-4 hover:bg-slate-50 cursor-pointer transition-colors",
+                    missingFields.length > 0 && "border-l-2 border-l-amber-300"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <DealHealthBadge health={getDealHealth(deal)} />
+                      <span className="font-semibold text-slate-900 truncate">{deal.dealName}</span>
+                    </div>
+                    <StatusBadge stage={deal.stage} />
+                  </div>
+                  <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                    <span className="font-mono font-medium text-slate-700">{formatCurrency(deal.price)}</span>
+                    <span className="text-emerald-700 font-semibold">{formatCurrency(grossComm)}</span>
+                    {deal.coeDate && <span>COE: {format(parseISO(deal.coeDate), 'MM/dd/yy')}</span>}
+                    {deal.projectYear && <span>{deal.projectYear}</span>}
+                  </div>
+                </div>
+              );
+            })}
+            {pipelineTotalPages > 1 && (
+              <div className="border-t border-slate-200 px-4 py-2">
+                <Pagination page={pipelineSafePage} totalPages={pipelineTotalPages} onPage={setPipelinePage} />
+              </div>
+            )}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto max-h-[70vh] overflow-y-auto">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 whitespace-nowrap sticky top-0 z-10">
             <tr>
@@ -3793,7 +3883,8 @@ const PipelineView = ({
             <Pagination page={pipelineSafePage} totalPages={pipelineTotalPages} onPage={setPipelinePage} />
           </div>
         )}
-      </div>
+          </div>
+        </>
       )}
       {filteredData.length === 0 && viewMode === 'table' && (
         <div className="p-12 text-center text-slate-500">
@@ -5709,8 +5800,8 @@ const NewTransactionModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full max-h-screen overflow-hidden flex flex-col sm:rounded-xl sm:shadow-2xl sm:max-w-6xl sm:max-h-[90vh] sm:m-4">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white z-10 shrink-0">
           <h2 className="text-xl font-bold text-slate-900">Add New Transaction</h2>
           <div className="flex items-center gap-2">
@@ -6842,7 +6933,7 @@ export default function App() {
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
             <TrendingUp className="w-5 h-5" />
           </div>
-          <span>LAO Pipeline</span>
+          <span className="dark:text-slate-100">LAO Pipeline</span>
         </div>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-600">
           {isMobileMenuOpen ? <X /> : <Menu />}
@@ -6913,7 +7004,7 @@ export default function App() {
           {/* Dark Mode Toggle */}
           <button
             onClick={() => setDarkMode(d => !d)}
-            className="w-full mt-2 p-2 flex items-center justify-center gap-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600 rounded-lg transition-colors"
+            className="w-full mt-2 p-2 flex items-center justify-center gap-2 text-slate-400 hover:bg-slate-50 hover:text-slate-300 dark:hover:text-slate-200 rounded-lg transition-colors"
             title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
             {darkMode
@@ -6938,7 +7029,7 @@ export default function App() {
           {currentView === 'dashboard' && !selectedDealId && (
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900">Executive Dashboard</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Executive Dashboard</h1>
                 <p className="text-slate-500">Welcome back. Here's your pipeline overview.</p>
               </div>
               <DashboardView
@@ -6956,7 +7047,7 @@ export default function App() {
           {currentView === 'pipeline' && !selectedDealId && (
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900">Pipeline Manager</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Pipeline Manager</h1>
                 <p className="text-slate-500">Manage your active and closed transactions.</p>
               </div>
               <PipelineView
@@ -7021,7 +7112,7 @@ export default function App() {
           {currentView === 'deleted' && !selectedDealId && (
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900">Recently Deleted</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Recently Deleted</h1>
                 <p className="text-slate-500">Restore or permanently delete items.</p>
               </div>
               <RecentlyDeletedView
