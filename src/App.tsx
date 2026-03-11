@@ -7542,7 +7542,7 @@ export default function App() {
     <div className={cn("min-h-screen font-sans flex transition-colors duration-300", darkMode ? "bg-slate-900 text-slate-100 dark" : "bg-slate-50 text-slate-900")}>
       {/* Mobile Header */}
       <div className={cn("md:hidden fixed top-0 left-0 right-0 h-16 border-b z-50 flex items-center justify-between px-4", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-        <button onClick={() => setCurrentView('dashboard')} className="flex items-center gap-2 font-bold text-slate-900 hover:opacity-80 transition-opacity">
+        <button onClick={() => { setCurrentView('dashboard'); setSelectedDealId(null); setSelectedLeadId(null); setSelectedContactId(null); }} className="flex items-center gap-2 font-bold text-slate-900 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
             <TrendingUp className="w-5 h-5" />
           </div>
@@ -7561,7 +7561,7 @@ export default function App() {
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
         isSidebarCollapsed ? "w-20" : "w-64"
       )}>
-        <button onClick={() => setCurrentView('dashboard')} className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl hover:opacity-80 transition-opacity", darkMode ? "text-slate-100" : "text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
+        <button onClick={() => { setCurrentView('dashboard'); setSelectedDealId(null); setSelectedLeadId(null); setSelectedContactId(null); }} className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl hover:opacity-80 transition-opacity", darkMode ? "text-slate-100" : "text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm shadow-indigo-200 shrink-0">
             <TrendingUp className="w-5 h-5" />
           </div>
@@ -7747,7 +7747,7 @@ export default function App() {
             <TransactionDetailView
               transaction={selectedTransaction}
               onSave={handleUpdateTransaction}
-              onClose={() => { setSelectedDealId(null); }}
+              onClose={() => { setSelectedDealId(null); setCurrentView('pipeline'); }}
               contacts={allContacts}
               onSelectContact={(contactId) => {
                 setSelectedContactId(contactId);
