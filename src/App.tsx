@@ -224,6 +224,9 @@ interface Lead {
   contactRole?: string;
   contactPhone?: string;
   contactEmail?: string;
+  description?: string;
+  estValue?: number;
+  assignedAgent?: string;
   details: string;
   lastSpokeDate: string;
   summary: string;
@@ -937,6 +940,12 @@ function processLeadCSV(data: any[]): Lead[] {
       type: row['Lead Type']?.trim() || 'True Lead',
       projectName: row['Project Name'] || `Lead ${index + 1}`,
       contactName: row['Contact'] || '',
+      contactRole: row['Contact Role'] || '',
+      contactPhone: row['Contact Phone'] || '',
+      contactEmail: row['Contact Email'] || '',
+      description: row['Description'] || '',
+      estValue: row['Est Value'] ? Number(row['Est Value']) : undefined,
+      assignedAgent: row['Assigned Agent'] || '',
       details: row['Details'] || '',
       lastSpokeDate: parseDate(row['Last Spoke']),
       summary: row['Summary of Discussion'] || '',
@@ -2223,8 +2232,8 @@ const LeadsView = ({
           </div>
           <button
             onClick={() => {
-              const headers = ['Type', 'Project Name', 'Contact', 'Details', 'Last Spoke', 'Summary'];
-              const rows = filteredLeads.map(l => [l.type, l.projectName, l.contactName, l.details, l.lastSpokeDate || '', l.summary]);
+              const headers = ['Lead Type', 'Project Name', 'Contact', 'Contact Role', 'Contact Phone', 'Contact Email', 'Description', 'Est Value', 'Assigned Agent', 'Last Spoke', 'Details', 'Summary of Discussion'];
+              const rows = filteredLeads.map(l => [l.type, l.projectName, l.contactName, l.contactRole || '', l.contactPhone || '', l.contactEmail || '', l.description || '', l.estValue ?? '', l.assignedAgent || '', l.lastSpokeDate || '', l.details || '', l.summary || '']);
               const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
               const blob = new Blob([csv], { type: 'text/csv' });
               const url = URL.createObjectURL(blob);
@@ -2490,33 +2499,41 @@ const LeadDetailView = ({
   onSelectContact?: (contactId: string) => void,
 }) => {
   const [formData, setFormData] = useState<Lead>(lead);
-  const goToContact = (name: string, email?: string) => {
-    if (!onSelectContact || !name.trim()) return;
-    const id = email?.trim().toLowerCase() || name.trim().toLowerCase();
-    onSelectContact(id);
-  };
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  
-  // Timeline State
   const [newNote, setNewNote] = useState('');
-  const [newNoteDate, setNewNoteDate] = useState(new Date().toISOString().slice(0, 16)); // YYYY-MM-DDTHH:mm
+  const [newNoteDate, setNewNoteDate] = useState(new Date().toISOString().slice(0, 16));
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteContent, setEditingNoteContent] = useState('');
   const [editingNoteDate, setEditingNoteDate] = useState('');
-
-  // Contact State
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [newContact, setNewContact] = useState<LeadContact>({ id: '', name: '', role: '', phone: '', email: '' });
-
-  // Reminder State
   const [isAddingReminder, setIsAddingReminder] = useState(false);
   const [newReminder, setNewReminder] = useState<LeadReminder>({ id: '', date: '', description: '', completed: false });
 
-  // Mobile tab navigation (info | activity | details)
-  const [mobileLeadTab, setMobileLeadTab] = useState<'info' | 'activity' | 'details'>('activity');
-
+  // On load: migrate legacy details/summary → notesLog entries, then clear them
   useEffect(() => {
-    setFormData(lead);
+    let migrated = { ...lead };
+    const toMigrate: Note[] = [];
+    if (migrated.details?.trim()) {
+      toMigrate.push({
+        id: `mig-d-${migrated.id}`,
+        content: `Details & Context:\n${migrated.details.trim()}`,
+        date: migrated.lastSpokeDate || new Date().toISOString(),
+      });
+      migrated = { ...migrated, details: '' };
+    }
+    if (migrated.summary?.trim()) {
+      toMigrate.push({
+        id: `mig-s-${migrated.id}`,
+        content: `Discussion Summary:\n${migrated.summary.trim()}`,
+        date: migrated.lastSpokeDate || new Date().toISOString(),
+      });
+      migrated = { ...migrated, summary: '' };
+    }
+    if (toMigrate.length > 0) {
+      migrated = { ...migrated, notesLog: [...toMigrate, ...(migrated.notesLog || [])] };
+    }
+    setFormData(migrated);
   }, [lead]);
 
   const handleInputChange = (field: keyof Lead, value: any) => {
@@ -2529,30 +2546,16 @@ const LeadDetailView = ({
     setTimeout(() => setShowSaveSuccess(false), 2000);
   };
 
-  // --- Timeline Logic ---
   const addNote = () => {
     if (!newNote.trim()) return;
-    
-    const note: Note = {
-      id: Math.random().toString(36).substr(2, 9),
-      content: newNote,
-      date: new Date(newNoteDate).toISOString()
-    };
-
-    setFormData(prev => ({
-      ...prev,
-      notesLog: [note, ...(prev.notesLog || [])],
-      lastSpokeDate: new Date(newNoteDate).toISOString() // Auto update last spoke date
-    }));
+    const note: Note = { id: Math.random().toString(36).substr(2, 9), content: newNote, date: new Date(newNoteDate).toISOString() };
+    setFormData(prev => ({ ...prev, notesLog: [note, ...(prev.notesLog || [])], lastSpokeDate: new Date(newNoteDate).toISOString() }));
     setNewNote('');
     setNewNoteDate(new Date().toISOString().slice(0, 16));
   };
 
   const deleteNote = (noteId: string) => {
-    setFormData(prev => ({
-        ...prev,
-        notesLog: prev.notesLog?.filter(n => n.id !== noteId) || []
-    }));
+    setFormData(prev => ({ ...prev, notesLog: prev.notesLog?.filter(n => n.id !== noteId) || [] }));
   };
 
   const startEditingNote = (note: Note) => {
@@ -2564,470 +2567,329 @@ const LeadDetailView = ({
   const saveEditedNote = () => {
     if (!editingNoteId) return;
     setFormData(prev => ({
-        ...prev,
-        notesLog: prev.notesLog?.map(n => 
-            n.id === editingNoteId 
-                ? { ...n, content: editingNoteContent, date: new Date(editingNoteDate).toISOString() }
-                : n
-        ) || []
+      ...prev,
+      notesLog: prev.notesLog?.map(n => n.id === editingNoteId ? { ...n, content: editingNoteContent, date: new Date(editingNoteDate).toISOString() } : n) || []
     }));
     setEditingNoteId(null);
   };
 
-  // --- Contact Logic ---
   const addContact = () => {
     if (!newContact.name) return;
     const contact: LeadContact = { ...newContact, id: Math.random().toString(36).substr(2, 9) };
-    setFormData(prev => ({
-        ...prev,
-        contacts: [...(prev.contacts || []), contact]
-    }));
+    setFormData(prev => ({ ...prev, contacts: [...(prev.contacts || []), contact] }));
     setNewContact({ id: '', name: '', role: '', phone: '', email: '' });
     setIsAddingContact(false);
   };
 
   const deleteContact = (id: string) => {
-      setFormData(prev => ({
-          ...prev,
-          contacts: prev.contacts?.filter(c => c.id !== id) || []
-      }));
+    setFormData(prev => ({ ...prev, contacts: prev.contacts?.filter(c => c.id !== id) || [] }));
   };
 
-  // --- Reminder Logic ---
   const addReminder = () => {
-      if (!newReminder.date || !newReminder.description) return;
-      const reminder: LeadReminder = { ...newReminder, id: Math.random().toString(36).substr(2, 9) };
-      setFormData(prev => ({
-          ...prev,
-          reminders: [...(prev.reminders || []), reminder]
-      }));
-      setNewReminder({ id: '', date: '', description: '', completed: false });
-      setIsAddingReminder(false);
+    if (!newReminder.date || !newReminder.description) return;
+    const reminder: LeadReminder = { ...newReminder, id: Math.random().toString(36).substr(2, 9) };
+    setFormData(prev => ({ ...prev, reminders: [...(prev.reminders || []), reminder] }));
+    setNewReminder({ id: '', date: '', description: '', completed: false });
+    setIsAddingReminder(false);
   };
 
   const toggleReminder = (id: string) => {
-      setFormData(prev => ({
-          ...prev,
-          reminders: prev.reminders?.map(r => 
-            r.id === id ? { ...r, completed: !r.completed } : r
-          ) || []
-      }));
+    setFormData(prev => ({ ...prev, reminders: prev.reminders?.map(r => r.id === id ? { ...r, completed: !r.completed } : r) || [] }));
   };
 
   const deleteReminder = (id: string) => {
-      setFormData(prev => ({
-          ...prev,
-          reminders: prev.reminders?.filter(r => r.id !== id) || []
-      }));
+    setFormData(prev => ({ ...prev, reminders: prev.reminders?.filter(r => r.id !== id) || [] }));
+  };
+
+  // Derived values
+  const sortedNotes = [...(formData.notesLog || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const lastContactedDate = sortedNotes.length > 0
+    ? new Date(sortedNotes[0].date)
+    : formData.lastSpokeDate ? parseISO(formData.lastSpokeDate) : null;
+  const daysSince = lastContactedDate ? Math.floor((Date.now() - lastContactedDate.getTime()) / (1000 * 60 * 60 * 24)) : null;
+  const typeColor = formData.type.includes('Converted') ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+    formData.type.includes('Live') ? 'bg-blue-100 text-blue-700 border-blue-200' :
+    formData.type.includes('True') ? 'bg-amber-100 text-amber-700 border-amber-200' :
+    'bg-slate-100 text-slate-600 border-slate-200';
+  const goToContact = (name: string, email?: string) => {
+    if (!onSelectContact || !name.trim()) return;
+    onSelectContact(email?.trim().toLowerCase() || name.trim().toLowerCase());
   };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header Card — mirrors TransactionDetailView */}
+
+      {/* ── Header Card ─────────────────────────────── */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors shrink-0">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors shrink-0 mt-1">
               <ChevronRight className="w-5 h-5 rotate-180" />
             </button>
-            <div className="min-w-0">
-              <h1 className="text-2xl font-bold text-slate-900 truncate">{formData.projectName || 'Untitled Lead'}</h1>
-              <div className="flex items-center gap-2 text-sm text-slate-500 mt-0.5">
-                <span className={cn(
-                  "w-2 h-2 rounded-full shrink-0",
-                  formData.type.includes('Converted') ? "bg-emerald-500" :
-                  formData.type.includes('Live') ? "bg-blue-500" :
-                  formData.type.includes('True') ? "bg-amber-500" :
-                  "bg-slate-400"
-                )} />
-                <span className="truncate">{formData.type}</span>
-                {formData.contactName && (
-                  <><span className="text-slate-300">·</span><span className="truncate">{formData.contactName}</span></>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <h1 className="text-2xl font-bold text-slate-900 truncate">{formData.projectName || 'Untitled Lead'}</h1>
+                <span className={cn("px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0", typeColor)}>{formData.type}</span>
+                {formData.assignedAgent && (
+                  <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">{formData.assignedAgent}</span>
+                )}
+              </div>
+              <p className="text-slate-500 text-sm mb-2 leading-snug">
+                {formData.description || <span className="italic text-slate-400">No description — add one in Lead Details</span>}
+              </p>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                {daysSince !== null && (
+                  <span className={cn("flex items-center gap-1", daysSince > 14 ? "text-amber-600 font-medium" : "text-slate-500")}>
+                    <Clock className="w-3 h-3" />
+                    {daysSince === 0 ? 'Contacted today' : `${daysSince}d since last contact`}
+                  </span>
+                )}
+                {formData.estValue ? (
+                  <span className="flex items-center gap-1 text-emerald-600 font-medium">
+                    <DollarSign className="w-3 h-3" /> Est. {formatCurrency(formData.estValue)}
+                  </span>
+                ) : null}
+                {formData.contactPhone && (
+                  <a href={`tel:${formData.contactPhone}`} className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-medium">
+                    <Phone className="w-3 h-3" /> {formData.contactPhone}
+                  </a>
+                )}
+                {formData.contactEmail && (
+                  <a href={`mailto:${formData.contactEmail}`} className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700">
+                    <Mail className="w-3 h-3" /> {formData.contactEmail}
+                  </a>
                 )}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:shrink-0">
-            {showSaveSuccess && (
-              <span className="text-sm text-emerald-600 font-medium animate-in fade-in">Saved!</span>
-            )}
-            <button
-              onClick={handleSave}
-              className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              <Save className="w-4 h-4" />
-              Save Changes
+          <div className="flex items-center gap-2 shrink-0">
+            {showSaveSuccess && <span className="text-sm text-emerald-600 font-medium animate-in fade-in">Saved!</span>}
+            <button onClick={handleSave} className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm">
+              <Save className="w-4 h-4" /> Save Changes
             </button>
           </div>
         </div>
       </div>
 
-      {/* Tab bar — same style as TransactionDetailView */}
-      <div className="flex border-b border-slate-200 gap-6 px-2 overflow-x-auto">
-        {([['info', 'Info & Contacts'], ['activity', 'Activity'], ['details', 'Reminders']] as const).map(([tab, label]) => (
-          <button
-            key={tab}
-            onClick={() => setMobileLeadTab(tab)}
-            className={cn(
-              "pb-3 text-sm font-medium transition-colors relative whitespace-nowrap",
-              mobileLeadTab === tab ? "text-indigo-600" : "text-slate-500 hover:text-slate-700"
+      {/* ── Two-column body ──────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* ── Sidebar (contact info + details) — top on mobile, right on desktop */}
+        <div className="lg:col-span-1 space-y-5 order-1 lg:order-2">
+
+          {/* Lead Details */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+              <FileText className="w-4 h-4" /> Lead Details
+            </h3>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Lead Type</label>
+              <select value={formData.type} onChange={e => handleInputChange('type', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                {['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Assigned Agent</label>
+              <select value={formData.assignedAgent || ''} onChange={e => handleInputChange('assignedAgent', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="">Unassigned</option>
+                <option value="Trey">Trey</option>
+                <option value="Kirk">Kirk</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Project Name</label>
+              <input type="text" value={formData.projectName} onChange={e => handleInputChange('projectName', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Description</label>
+              <textarea value={formData.description || ''} onChange={e => handleInputChange('description', e.target.value)} rows={3} placeholder="Brief description of the opportunity..." className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Est. Deal Value</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                <input type="number" value={formData.estValue || ''} onChange={e => handleInputChange('estValue', e.target.value ? Number(e.target.value) : undefined)} min={0} placeholder="0" className="w-full pl-6 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+              </div>
+            </div>
+            {lastContactedDate && (
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Last Contacted</label>
+                <p className="text-sm text-slate-700">{format(lastContactedDate, 'MMM d, yyyy')}</p>
+              </div>
             )}
-          >
-            {label}
-            {mobileLeadTab === tab && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 rounded-t-full" />
-            )}
-          </button>
-        ))}
-      </div>
+          </div>
 
-      {/* Content grid */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-200">
-
-            {/* Left Column: Info & Contacts */}
-            <div className={cn("md:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50", mobileLeadTab !== 'info' ? "hidden md:block" : "")}>
-                <div className="space-y-4">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                        <Users className="w-4 h-4" /> Lead Information
-                    </h3>
-                    
-                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                        <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Lead Type</label>
-                            <select 
-                                value={formData.type} 
-                                onChange={e => handleInputChange('type', e.target.value)}
-                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            >
-                                {['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'].map(type => (
-                                    <option key={type} value={type}>{type}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Project Name</label>
-                            <input 
-                                type="text" 
-                                value={formData.projectName} 
-                                onChange={e => handleInputChange('projectName', e.target.value)}
-                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Primary Contact Name</label>
-                            <input
-                                type="text"
-                                value={formData.contactName}
-                                onChange={e => handleInputChange('contactName', e.target.value)}
-                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                placeholder="Full name"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Role / Title</label>
-                            <input
-                                type="text"
-                                value={formData.contactRole || ''}
-                                onChange={e => handleInputChange('contactRole', e.target.value)}
-                                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                placeholder="e.g. Owner, Broker, CEO"
-                            />
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-                                <div className="flex items-center gap-1">
-                                    <input
-                                        type="tel"
-                                        value={formData.contactPhone || ''}
-                                        onChange={e => handleInputChange('contactPhone', e.target.value)}
-                                        className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        placeholder="(555) 000-0000"
-                                    />
-                                    {formData.contactPhone && (
-                                        <a href={`tel:${formData.contactPhone}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Call">
-                                            <Phone className="w-4 h-4" />
-                                        </a>
-                                    )}
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
-                                <div className="flex items-center gap-1">
-                                    <input
-                                        type="email"
-                                        value={formData.contactEmail || ''}
-                                        onChange={e => handleInputChange('contactEmail', e.target.value)}
-                                        className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                        placeholder="email@example.com"
-                                    />
-                                    {formData.contactEmail && (
-                                        <a href={`mailto:${formData.contactEmail}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Email">
-                                            <Mail className="w-4 h-4" />
-                                        </a>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                            <Users className="w-4 h-4" /> Additional Contacts
-                        </h3>
-                        <button 
-                            onClick={() => setIsAddingContact(true)}
-                            className="text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1"
-                        >
-                            <Plus className="w-3 h-3" /> Add
-                        </button>
-                    </div>
-
-                    <div className="space-y-3">
-                        {formData.contacts?.map(contact => (
-                            <div key={contact.id} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm group relative">
-                                <button 
-                                    onClick={() => deleteContact(contact.id)}
-                                    className="absolute top-2 right-2 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    <X className="w-4 h-4" />
-                                </button>
-                                {onSelectContact && contact.name
-                                  ? <button onClick={() => goToContact(contact.name, contact.email)} className="font-medium text-slate-900 hover:text-indigo-600 transition-colors text-left">{contact.name}</button>
-                                  : <div className="font-medium text-slate-900">{contact.name}</div>}
-                                <div className="text-xs text-slate-500">{contact.role}</div>
-                                <div className="mt-2 space-y-1">
-                                    {contact.phone && (
-                                        <div className="text-xs text-slate-600 flex items-center gap-2">
-                                            <Phone className="w-3 h-3 text-slate-400" /> {contact.phone}
-                                        </div>
-                                    )}
-                                    {contact.email && (
-                                        <div className="text-xs text-slate-600 flex items-center gap-2">
-                                            <Mail className="w-3 h-3 text-slate-400" /> {contact.email}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                        
-                        {isAddingContact && (
-                            <div className="bg-white p-3 rounded-lg border border-indigo-200 shadow-sm space-y-2 animate-in fade-in">
-                                <input 
-                                    placeholder="Name"
-                                    className="w-full p-1.5 text-sm border border-slate-200 rounded"
-                                    value={newContact.name}
-                                    onChange={e => setNewContact(prev => ({ ...prev, name: e.target.value }))}
-                                />
-                                <input 
-                                    placeholder="Role (e.g. CEO)"
-                                    className="w-full p-1.5 text-sm border border-slate-200 rounded"
-                                    value={newContact.role}
-                                    onChange={e => setNewContact(prev => ({ ...prev, role: e.target.value }))}
-                                />
-                                <input 
-                                    placeholder="Phone"
-                                    className="w-full p-1.5 text-sm border border-slate-200 rounded"
-                                    value={newContact.phone}
-                                    onChange={e => setNewContact(prev => ({ ...prev, phone: e.target.value }))}
-                                />
-                                <input 
-                                    placeholder="Email"
-                                    className="w-full p-1.5 text-sm border border-slate-200 rounded"
-                                    value={newContact.email}
-                                    onChange={e => setNewContact(prev => ({ ...prev, email: e.target.value }))}
-                                />
-                                <div className="flex justify-end gap-2 pt-2">
-                                    <button onClick={() => setIsAddingContact(false)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
-                                    <button onClick={addContact} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700">Add</button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
+          {/* Primary Contact */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+              <Users className="w-4 h-4" /> Primary Contact
+            </h3>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
+              <input type="text" value={formData.contactName} onChange={e => handleInputChange('contactName', e.target.value)} placeholder="Full name" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
             </div>
-
-            {/* Middle Column: Activity Timeline */}
-            <div className={cn("md:col-span-1 overflow-y-auto p-6 bg-white flex flex-col min-h-[400px]", mobileLeadTab !== 'activity' ? "hidden md:flex" : "")}>
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <History className="w-4 h-4" /> Activity Timeline
-                </h3>
-
-                {/* Add Note Input */}
-                <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <div className="flex gap-2 mb-2">
-                        <input 
-                            type="datetime-local"
-                            value={newNoteDate}
-                            onChange={e => setNewNoteDate(e.target.value)}
-                            className="text-xs border border-slate-200 rounded px-2 py-1 bg-white text-slate-600"
-                        />
-                    </div>
-                    <textarea 
-                        value={newNote}
-                        onChange={e => setNewNote(e.target.value)}
-                        placeholder="Log a call, meeting, or update..."
-                        className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px] mb-2 bg-white"
-                    />
-                    <div className="flex justify-end">
-                        <button 
-                            onClick={addNote}
-                            disabled={!newNote.trim()}
-                            className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-                        >
-                            <Plus className="w-3 h-3" /> Log Activity
-                        </button>
-                    </div>
-                </div>
-
-                {/* Timeline */}
-                <div className="flex-1 space-y-6 relative before:absolute before:left-4 before:top-0 before:bottom-0 before:w-px before:bg-slate-200">
-                    {formData.notesLog?.map((note) => (
-                        <div key={note.id} className="relative pl-10 group">
-                            <div className="absolute left-2 top-2 w-4 h-4 rounded-full bg-white border-2 border-indigo-500 z-10" />
-                            
-                            {editingNoteId === note.id ? (
-                                <div className="bg-white p-3 rounded-lg border border-indigo-200 shadow-sm space-y-2">
-                                    <input 
-                                        type="datetime-local"
-                                        value={editingNoteDate}
-                                        onChange={e => setEditingNoteDate(e.target.value)}
-                                        className="w-full text-xs border border-slate-200 rounded px-2 py-1"
-                                    />
-                                    <textarea 
-                                        value={editingNoteContent}
-                                        onChange={e => setEditingNoteContent(e.target.value)}
-                                        className="w-full p-2 border border-slate-200 rounded text-sm min-h-[60px]"
-                                    />
-                                    <div className="flex justify-end gap-2">
-                                        <button onClick={() => setEditingNoteId(null)} className="p-1 text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
-                                        <button onClick={saveEditedNote} className="p-1 text-emerald-600 hover:text-emerald-700"><Check className="w-4 h-4" /></button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:border-indigo-200 transition-colors">
-                                    <div className="flex justify-between items-start mb-1">
-                                        <span className="text-xs font-medium text-slate-500">
-                                            {format(parseISO(note.date), 'MMM d, yyyy h:mm a')}
-                                        </span>
-                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={() => startEditingNote(note)} className="p-1 text-slate-400 hover:text-indigo-600"><Edit2 className="w-3 h-3" /></button>
-                                            <button onClick={() => deleteNote(note.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
-                                        </div>
-                                    </div>
-                                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{note.content}</p>
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                    {(!formData.notesLog || formData.notesLog.length === 0) && (
-                        <div className="pl-10 text-sm text-slate-400 italic">
-                            No activity logged yet.
-                        </div>
-                    )}
-                </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Role / Title</label>
+              <input type="text" value={formData.contactRole || ''} onChange={e => handleInputChange('contactRole', e.target.value)} placeholder="e.g. Owner, Broker, CEO" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
             </div>
-
-            {/* Right Column: Reminders & Details */}
-            <div className={cn("md:col-span-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50 min-h-[400px]", mobileLeadTab !== 'details' ? "hidden md:block" : "")}>
-                {/* Reminders Widget */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                            <Calendar className="w-4 h-4" /> Follow-Up Reminders
-                        </h3>
-                        <button 
-                            onClick={() => setIsAddingReminder(true)}
-                            className="text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1"
-                        >
-                            <Plus className="w-3 h-3" /> Add
-                        </button>
-                    </div>
-                    
-                    <div className="p-4 space-y-3">
-                        {isAddingReminder && (
-                            <div className="bg-slate-50 p-3 rounded-lg border border-indigo-200 space-y-2 mb-4 animate-in fade-in">
-                                <input 
-                                    type="date"
-                                    className="w-full p-1.5 text-sm border border-slate-200 rounded"
-                                    value={newReminder.date}
-                                    onChange={e => setNewReminder(prev => ({ ...prev, date: e.target.value }))}
-                                />
-                                <input 
-                                    placeholder="Description (e.g. Call back)"
-                                    className="w-full p-1.5 text-sm border border-slate-200 rounded"
-                                    value={newReminder.description}
-                                    onChange={e => setNewReminder(prev => ({ ...prev, description: e.target.value }))}
-                                />
-                                <div className="flex justify-end gap-2 pt-2">
-                                    <button onClick={() => setIsAddingReminder(false)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
-                                    <button onClick={addReminder} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700">Set Reminder</button>
-                                </div>
-                            </div>
-                        )}
-
-                        {formData.reminders?.map(reminder => (
-                            <div key={reminder.id} className={cn("flex items-start gap-3 p-3 rounded-lg border transition-all", reminder.completed ? "bg-slate-50 border-slate-100 opacity-60" : "bg-white border-slate-200 shadow-sm")}>
-                                <input 
-                                    type="checkbox"
-                                    checked={reminder.completed}
-                                    onChange={() => toggleReminder(reminder.id)}
-                                    className="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                                />
-                                <div className="flex-1 min-w-0">
-                                    <p className={cn("text-sm font-medium", reminder.completed ? "text-slate-500 line-through" : "text-slate-900")}>
-                                        {reminder.description}
-                                    </p>
-                                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                                        <Calendar className="w-3 h-3" />
-                                        {format(parseISO(reminder.date), 'MMM d, yyyy')}
-                                    </p>
-                                </div>
-                                <button onClick={() => deleteReminder(reminder.id)} className="text-slate-400 hover:text-red-500">
-                                    <X className="w-3 h-3" />
-                                </button>
-                            </div>
-                        ))}
-                        
-                        {(!formData.reminders || formData.reminders.length === 0) && !isAddingReminder && (
-                            <p className="text-xs text-slate-400 text-center py-4">No active reminders.</p>
-                        )}
-                    </div>
-                </div>
-
-                {/* Details & Summary */}
-                <div className="space-y-4">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Details & Context</h3>
-                    
-                    <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Lead Details</label>
-                        <textarea 
-                            value={formData.details} 
-                            onChange={e => handleInputChange('details', e.target.value)}
-                            className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[100px]"
-                            placeholder="Requirements, budget, location preferences..."
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-medium text-slate-500 mb-1">Discussion Summary</label>
-                        <textarea 
-                            value={formData.summary} 
-                            onChange={e => handleInputChange('summary', e.target.value)}
-                            className="w-full p-3 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[100px]"
-                            placeholder="High level summary of where things stand..."
-                        />
-                    </div>
-                </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+              <div className="flex items-center gap-1">
+                <input type="tel" value={formData.contactPhone || ''} onChange={e => handleInputChange('contactPhone', e.target.value)} placeholder="(555) 000-0000" className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                {formData.contactPhone && (
+                  <a href={`tel:${formData.contactPhone}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Call"><Phone className="w-4 h-4" /></a>
+                )}
+              </div>
             </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+              <div className="flex items-center gap-1">
+                <input type="email" value={formData.contactEmail || ''} onChange={e => handleInputChange('contactEmail', e.target.value)} placeholder="email@example.com" className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                {formData.contactEmail && (
+                  <a href={`mailto:${formData.contactEmail}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Email"><Mail className="w-4 h-4" /></a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Contacts */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><Users className="w-4 h-4" /> Additional Contacts</h3>
+              <button onClick={() => setIsAddingContact(true)} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+            </div>
+            <div className="p-4 space-y-3">
+              {isAddingContact && (
+                <div className="bg-slate-50 p-3 rounded-lg border border-indigo-200 space-y-2 animate-in fade-in">
+                  <input placeholder="Name" className="w-full p-1.5 text-sm border border-slate-200 rounded-lg" value={newContact.name} onChange={e => setNewContact(p => ({ ...p, name: e.target.value }))} />
+                  <input placeholder="Role (e.g. CEO)" className="w-full p-1.5 text-sm border border-slate-200 rounded-lg" value={newContact.role} onChange={e => setNewContact(p => ({ ...p, role: e.target.value }))} />
+                  <input placeholder="Phone" type="tel" className="w-full p-1.5 text-sm border border-slate-200 rounded-lg" value={newContact.phone} onChange={e => setNewContact(p => ({ ...p, phone: e.target.value }))} />
+                  <input placeholder="Email" type="email" className="w-full p-1.5 text-sm border border-slate-200 rounded-lg" value={newContact.email} onChange={e => setNewContact(p => ({ ...p, email: e.target.value }))} />
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button onClick={() => setIsAddingContact(false)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+                    <button onClick={addContact} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700">Add</button>
+                  </div>
+                </div>
+              )}
+              {formData.contacts?.map(contact => (
+                <div key={contact.id} className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 bg-white group relative">
+                  <button onClick={() => deleteContact(contact.id)} className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3.5 h-3.5" /></button>
+                  <div className="min-w-0 flex-1">
+                    {onSelectContact && contact.name
+                      ? <button onClick={() => goToContact(contact.name, contact.email)} className="font-medium text-sm text-slate-900 hover:text-indigo-600 transition-colors text-left">{contact.name}</button>
+                      : <div className="font-medium text-sm text-slate-900">{contact.name}</div>}
+                    {contact.role && <div className="text-xs text-slate-500">{contact.role}</div>}
+                    <div className="mt-1.5 space-y-0.5">
+                      {contact.phone && <a href={`tel:${contact.phone}`} className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700"><Phone className="w-3 h-3" /> {contact.phone}</a>}
+                      {contact.email && <a href={`mailto:${contact.email}`} className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700"><Mail className="w-3 h-3" /> {contact.email}</a>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {(!formData.contacts || formData.contacts.length === 0) && !isAddingContact && (
+                <p className="text-xs text-slate-400 text-center py-3">No additional contacts.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Reminders */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><Bell className="w-4 h-4" /> Follow-Up Reminders</h3>
+              <button onClick={() => setIsAddingReminder(true)} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1"><Plus className="w-3 h-3" /> Add</button>
+            </div>
+            <div className="p-4 space-y-3">
+              {isAddingReminder && (
+                <div className="bg-slate-50 p-3 rounded-lg border border-indigo-200 space-y-2 animate-in fade-in">
+                  <input type="date" className="w-full p-1.5 text-sm border border-slate-200 rounded-lg" value={newReminder.date} onChange={e => setNewReminder(p => ({ ...p, date: e.target.value }))} />
+                  <input placeholder="Description (e.g. Call back)" className="w-full p-1.5 text-sm border border-slate-200 rounded-lg" value={newReminder.description} onChange={e => setNewReminder(p => ({ ...p, description: e.target.value }))} />
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button onClick={() => setIsAddingReminder(false)} className="text-xs text-slate-500 hover:text-slate-700">Cancel</button>
+                    <button onClick={addReminder} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700">Set Reminder</button>
+                  </div>
+                </div>
+              )}
+              {formData.reminders?.map(reminder => (
+                <div key={reminder.id} className={cn("flex items-start gap-3 p-3 rounded-lg border transition-all", reminder.completed ? "bg-slate-50 border-slate-100 opacity-60" : "bg-white border-slate-200 shadow-sm")}>
+                  <input type="checkbox" checked={reminder.completed} onChange={() => toggleReminder(reminder.id)} className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                  <div className="flex-1 min-w-0">
+                    <p className={cn("text-sm font-medium", reminder.completed ? "text-slate-500 line-through" : "text-slate-900")}>{reminder.description}</p>
+                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5"><Calendar className="w-3 h-3" /> {format(parseISO(reminder.date), 'MMM d, yyyy')}</p>
+                  </div>
+                  <button onClick={() => deleteReminder(reminder.id)} className="text-slate-400 hover:text-red-500"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+              {(!formData.reminders || formData.reminders.length === 0) && !isAddingReminder && (
+                <p className="text-xs text-slate-400 text-center py-3">No active reminders.</p>
+              )}
+            </div>
+          </div>
         </div>
+
+        {/* ── Activity Log (main column, 2/3 width on desktop) */}
+        <div className="lg:col-span-2 order-2 lg:order-1">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                <History className="w-4 h-4" /> Activity Log
+              </h3>
+              <span className="text-xs text-slate-400">{sortedNotes.length} {sortedNotes.length === 1 ? 'entry' : 'entries'}</span>
+            </div>
+            <div className="p-6 space-y-6">
+              {/* Quick-add */}
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-3">
+                <input type="datetime-local" value={newNoteDate} onChange={e => setNewNoteDate(e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+                <textarea
+                  value={newNote}
+                  onChange={e => setNewNote(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addNote(); }}
+                  placeholder="Log a call, meeting, site visit, or update..."
+                  className="w-full p-3 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px] bg-white resize-none"
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400">⌘↵ to submit</span>
+                  <button onClick={addNote} disabled={!newNote.trim()} className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors">
+                    <Plus className="w-3 h-3" /> Log Activity
+                  </button>
+                </div>
+              </div>
+
+              {/* Timeline */}
+              <div className="space-y-4 relative before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-px before:bg-slate-200">
+                {sortedNotes.map(note => (
+                  <div key={note.id} className="relative pl-8 group">
+                    <div className="absolute left-0 top-3 w-3.5 h-3.5 rounded-full bg-white border-2 border-indigo-400 z-10" />
+                    {editingNoteId === note.id ? (
+                      <div className="bg-white p-3 rounded-lg border border-indigo-200 shadow-sm space-y-2">
+                        <input type="datetime-local" value={editingNoteDate} onChange={e => setEditingNoteDate(e.target.value)} className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1" />
+                        <textarea value={editingNoteContent} onChange={e => setEditingNoteContent(e.target.value)} className="w-full p-2 border border-slate-200 rounded-lg text-sm min-h-[60px] resize-none" />
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => setEditingNoteId(null)} className="p-1 text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+                          <button onClick={saveEditedNote} className="p-1 text-emerald-600 hover:text-emerald-700"><Check className="w-4 h-4" /></button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:border-indigo-200 transition-colors">
+                        <div className="flex justify-between items-start mb-1.5">
+                          <span className="text-xs font-medium text-slate-500">{format(parseISO(note.date), 'MMM d, yyyy h:mm a')}</span>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => startEditingNote(note)} className="p-1 text-slate-400 hover:text-indigo-600"><Edit2 className="w-3 h-3" /></button>
+                            <button onClick={() => deleteNote(note.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 className="w-3 h-3" /></button>
+                          </div>
+                        </div>
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{note.content}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {sortedNotes.length === 0 && (
+                  <div className="pl-8 text-sm text-slate-400 italic py-4">No activity logged yet. Use the form above to log calls, meetings, or updates.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   );
