@@ -1836,6 +1836,69 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
             )}
           </div>
 
+          {/* Deadlines Widget — mobile only, shown between Closing in Month and Calendar */}
+          <div className="block lg:hidden bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
+                <Clock className="w-4 h-4 text-slate-500" /> Deadlines
+              </h3>
+              <button
+                onClick={() => setShowQuickReminder(true)}
+                className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 uppercase tracking-wider"
+              >
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
+            {upcomingDeadlines.overdue.length > 0 && (
+              <div className="mb-4">
+                <p className="text-[10px] font-bold text-red-600 uppercase tracking-widest mb-2 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Overdue ({upcomingDeadlines.overdue.length})
+                </p>
+                <div className="space-y-2">
+                  {upcomingDeadlines.overdue.slice(0, 3).map((item, i) => (
+                    <div
+                      key={`mobile-overdue-${i}`}
+                      className="flex items-start gap-3 p-2.5 bg-red-50 rounded-xl border border-red-100 cursor-pointer hover:bg-red-100 transition-all"
+                      onClick={() => item.isLead ? onSelectLead(item.id) : onSelectDeal(item.id)}
+                    >
+                      <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 bg-red-500" />
+                      <div>
+                        <p className="text-xs font-bold text-red-800 leading-tight">{item.label}</p>
+                        <p className="text-[10px] text-red-600 font-medium">{item.dealName} — {format(item.date, 'MMM d')}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="space-y-3">
+              {upcomingDeadlines.upcoming.length === 0 && upcomingDeadlines.overdue.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No upcoming deadlines.</p>
+              ) : (
+                upcomingDeadlines.upcoming.map((item, i) => (
+                  <div
+                    key={`mobile-upcoming-${i}`}
+                    className="flex items-start gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all hover:translate-x-1"
+                    onClick={() => item.isLead ? onSelectLead(item.id) : onSelectDeal(item.id)}
+                  >
+                    <div className={cn(
+                      "w-1.5 h-1.5 rounded-full mt-1.5 shrink-0",
+                      item.type === 'critical' ? "bg-red-500" : item.type === 'reminder' ? "bg-purple-500" : "bg-amber-500"
+                    )} />
+                    <div>
+                      <p className="text-sm font-bold text-slate-900 leading-tight">{item.label}</p>
+                      <p className="text-[10px] text-slate-500 font-medium mt-0.5">{item.dealName}</p>
+                      <div className="flex items-center gap-1 mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                        <CalendarIcon className="w-3 h-3" />
+                        {format(item.date, 'MMM d, yyyy')}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           {/* Deal Calendar — month nav is shared with widget above */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
             <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
@@ -1993,7 +2056,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
         </div>
 
         {/* Sidebar Column */}
-        <div className="flex flex-col gap-6">
+        <div className="hidden lg:flex flex-col gap-6">
           {/* Deadlines Widget */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
@@ -6536,7 +6599,18 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
   const [darkMode, setDarkMode] = useState(false);
-  const [actionLog, setActionLog] = useState<ActionLogEntry[]>([]);
+  const [actionLog, setActionLog] = useState<ActionLogEntry[]>(() => {
+    try {
+      const stored = localStorage.getItem('actionLog');
+      if (stored) {
+        const entries = JSON.parse(stored) as ActionLogEntry[];
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 10);
+        return entries.filter(e => new Date(e.timestamp) > cutoff);
+      }
+    } catch {}
+    return [];
+  });
 
   const logAction = (entry: Omit<ActionLogEntry, 'id' | 'timestamp'>) => {
     setActionLog(prev => [{
@@ -6545,6 +6619,14 @@ export default function App() {
       timestamp: new Date().toISOString(),
     }, ...prev]);
   };
+
+  useEffect(() => {
+    try {
+      // Omit previousState to keep localStorage size manageable
+      const toStore = actionLog.map(({ previousState: _ps, ...rest }) => rest);
+      localStorage.setItem('actionLog', JSON.stringify(toStore));
+    } catch {}
+  }, [actionLog]);
 
   useEffect(() => {
     const loadInitialData = async () => {
@@ -6623,12 +6705,27 @@ export default function App() {
   const handleUpdateTransaction = (updated: Transaction) => {
     setTransactions(prev => {
       const old = prev.find(t => t.id === updated.id);
+      let description = `Updated "${updated.dealName}"`;
+      if (old) {
+        const changes: string[] = [];
+        if (old.dealName !== updated.dealName) changes.push(`renamed from "${old.dealName}"`);
+        if (old.stage !== updated.stage) changes.push(`stage: ${old.stage} → ${updated.stage}`);
+        if (old.price !== updated.price) changes.push(`price: ${formatCurrency(old.price)} → ${formatCurrency(updated.price)}`);
+        if (old.grossCommissionPercent !== updated.grossCommissionPercent) changes.push(`commission: ${old.grossCommissionPercent}% → ${updated.grossCommissionPercent}%`);
+        if (old.coeDate !== updated.coeDate) changes.push(`COE date updated`);
+        if (old.psaDate !== updated.psaDate) changes.push(`PSA date updated`);
+        if (old.address !== updated.address) changes.push(`address updated`);
+        if ((old.notesLog?.length ?? 0) !== (updated.notesLog?.length ?? 0)) changes.push(`note ${(updated.notesLog?.length ?? 0) > (old.notesLog?.length ?? 0) ? 'added' : 'removed'}`);
+        if ((old.documents?.length ?? 0) !== (updated.documents?.length ?? 0)) changes.push(`document ${(updated.documents?.length ?? 0) > (old.documents?.length ?? 0) ? 'added' : 'removed'}`);
+        if ((old.reminders?.length ?? 0) !== (updated.reminders?.length ?? 0)) changes.push(`reminder ${(updated.reminders?.length ?? 0) > (old.reminders?.length ?? 0) ? 'added' : 'removed'}`);
+        if (changes.length > 0) description = `"${updated.dealName}": ${changes.join('; ')}`;
+      }
       logAction({
         type: 'transaction_update',
         entityId: updated.id,
         entityType: 'transaction',
         entityName: updated.dealName,
-        description: `Updated transaction "${updated.dealName}"`,
+        description,
         previousState: old,
       });
       return prev.map(t => t.id === updated.id ? updated : t);
@@ -6660,12 +6757,24 @@ export default function App() {
   const handleUpdateLead = (updated: Lead) => {
     setLeads(prev => {
       const old = prev.find(l => l.id === updated.id);
+      let description = `Updated lead "${updated.projectName}"`;
+      if (old) {
+        const changes: string[] = [];
+        if (old.projectName !== updated.projectName) changes.push(`renamed from "${old.projectName}"`);
+        if (old.type !== updated.type) changes.push(`type: ${old.type} → ${updated.type}`);
+        if (old.summary !== updated.summary) changes.push(`summary updated`);
+        if (old.contactName !== updated.contactName) changes.push(`contact: ${old.contactName} → ${updated.contactName}`);
+        if ((old.notesLog?.length ?? 0) !== (updated.notesLog?.length ?? 0)) changes.push(`note ${(updated.notesLog?.length ?? 0) > (old.notesLog?.length ?? 0) ? 'added' : 'removed'}`);
+        if ((old.contacts?.length ?? 0) !== (updated.contacts?.length ?? 0)) changes.push(`contact ${(updated.contacts?.length ?? 0) > (old.contacts?.length ?? 0) ? 'added' : 'removed'}`);
+        if ((old.reminders?.length ?? 0) !== (updated.reminders?.length ?? 0)) changes.push(`reminder ${(updated.reminders?.length ?? 0) > (old.reminders?.length ?? 0) ? 'added' : 'removed'}`);
+        if (changes.length > 0) description = `"${updated.projectName}": ${changes.join('; ')}`;
+      }
       logAction({
         type: 'lead_update',
         entityId: updated.id,
         entityType: 'lead',
         entityName: updated.projectName,
-        description: `Updated lead "${updated.projectName}"`,
+        description,
         previousState: old,
       });
       return prev.map(l => l.id === updated.id ? updated : l);
@@ -6881,12 +6990,12 @@ export default function App() {
     <div className={cn("min-h-screen font-sans flex transition-colors duration-300", darkMode ? "bg-slate-900 text-slate-100 dark" : "bg-slate-50 text-slate-900")}>
       {/* Mobile Header */}
       <div className={cn("md:hidden fixed top-0 left-0 right-0 h-16 border-b z-50 flex items-center justify-between px-4", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-        <div className="flex items-center gap-2 font-bold text-slate-900">
+        <button onClick={() => setCurrentView('dashboard')} className="flex items-center gap-2 font-bold text-slate-900 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
             <TrendingUp className="w-5 h-5" />
           </div>
           <span className="dark:text-slate-100">LAO Pipeline</span>
-        </div>
+        </button>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-slate-600">
           {isMobileMenuOpen ? <X /> : <Menu />}
         </button>
@@ -6900,12 +7009,12 @@ export default function App() {
         isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
         isSidebarCollapsed ? "w-20" : "w-64"
       )}>
-        <div className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl", darkMode ? "text-slate-100" : "text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
+        <button onClick={() => setCurrentView('dashboard')} className={cn("p-6 hidden md:flex items-center gap-3 font-bold text-xl hover:opacity-80 transition-opacity", darkMode ? "text-slate-100" : "text-slate-900", isSidebarCollapsed && "justify-center px-2")}>
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm shadow-indigo-200 shrink-0">
             <TrendingUp className="w-5 h-5" />
           </div>
           {!isSidebarCollapsed && <span className="whitespace-nowrap">LAO Pipeline</span>}
-        </div>
+        </button>
 
         <div className="flex-1 px-4 py-6 flex flex-col mt-14 md:mt-0">
           {!isSidebarCollapsed && <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider px-4 mb-2">Menu</div>}
