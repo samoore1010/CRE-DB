@@ -329,6 +329,13 @@ const INITIAL_TRANSACTIONS: Transaction[] = [];
 
 const INITIAL_LEADS: Lead[] = [];
 
+// Returns the content of the most recent activity log entry for a lead
+function getLeadSummary(lead: Lead): string {
+  if (!lead.notesLog || lead.notesLog.length === 0) return '';
+  const sorted = [...lead.notesLog].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  return sorted[0]?.content || '';
+}
+
 // --- Business Logic Hook ---
 
 function useCommissionMath(transaction: Transaction) {
@@ -2159,8 +2166,8 @@ const LeadsView = ({
       data = data.filter(l =>
         l.projectName.toLowerCase().includes(lowerSearch) ||
         l.contactName.toLowerCase().includes(lowerSearch) ||
-        l.details.toLowerCase().includes(lowerSearch) ||
-        l.summary.toLowerCase().includes(lowerSearch)
+        (l.description || '').toLowerCase().includes(lowerSearch) ||
+        getLeadSummary(l).toLowerCase().includes(lowerSearch)
       );
     }
 
@@ -2399,7 +2406,7 @@ const LeadsView = ({
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-900">{lead.projectName}</td>
                       <td className="px-4 py-3 text-slate-600">{lead.contactName}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate" title={lead.details}>{lead.details}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate" title={lead.description || ''}>{lead.description || ''}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {(() => {
                           if (!lead.lastSpokeDate) return <span className="text-slate-400 text-xs">Never</span>;
@@ -2409,7 +2416,7 @@ const LeadsView = ({
                           return <span className={cn("px-2 py-1 rounded-full text-xs font-semibold", color)}>{label}</span>;
                         })()}
                       </td>
-                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[250px] truncate" title={lead.summary}>{lead.summary}</td>
+                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[250px] truncate" title={getLeadSummary(lead)}>{getLeadSummary(lead)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           {missingFields.length > 0 && onUpdateLead && (
@@ -2510,29 +2517,54 @@ const LeadDetailView = ({
   const [isAddingReminder, setIsAddingReminder] = useState(false);
   const [newReminder, setNewReminder] = useState<LeadReminder>({ id: '', date: '', description: '', completed: false });
 
-  // On load: migrate legacy details/summary → notesLog entries, then clear them
+  // On load: migrate legacy fields
+  // - details → description (not an activity log entry)
+  // - summary → notesLog (Discussion Summary note, if not already there)
+  // - Remove any "Details & Context" notes previously created by old migration
   useEffect(() => {
     let migrated = { ...lead };
-    const toMigrate: Note[] = [];
+
+    // Remove any "Details & Context" migration notes from notesLog
+    const cleanedNotes = (migrated.notesLog || []).filter(n =>
+      !n.id.startsWith('mig-d-') && !n.content.startsWith('Details & Context:\n')
+    );
+
+    // If description is empty, try to recover it from a "Details & Context" note before removing
+    if (!migrated.description?.trim()) {
+      const detailsNote = (migrated.notesLog || []).find(n =>
+        n.id.startsWith('mig-d-') || n.content.startsWith('Details & Context:\n')
+      );
+      if (detailsNote) {
+        const extracted = detailsNote.content.replace(/^Details & Context:\n/, '');
+        migrated = { ...migrated, description: extracted };
+      }
+    }
+
+    migrated = { ...migrated, notesLog: cleanedNotes };
+
+    // Migrate legacy details field → description (not activity log)
     if (migrated.details?.trim()) {
-      toMigrate.push({
-        id: `mig-d-${migrated.id}`,
-        content: `Details & Context:\n${migrated.details.trim()}`,
-        date: migrated.lastSpokeDate || new Date().toISOString(),
-      });
+      if (!migrated.description?.trim()) {
+        migrated = { ...migrated, description: migrated.details.trim() };
+      }
       migrated = { ...migrated, details: '' };
     }
+
+    // Migrate legacy summary field → notesLog (Discussion Summary note)
     if (migrated.summary?.trim()) {
-      toMigrate.push({
-        id: `mig-s-${migrated.id}`,
-        content: `Discussion Summary:\n${migrated.summary.trim()}`,
-        date: migrated.lastSpokeDate || new Date().toISOString(),
-      });
-      migrated = { ...migrated, summary: '' };
+      const alreadyMigrated = (migrated.notesLog || []).some(n => n.id === `mig-s-${migrated.id}`);
+      if (!alreadyMigrated) {
+        const summaryNote: Note = {
+          id: `mig-s-${migrated.id}`,
+          content: `Discussion Summary:\n${migrated.summary.trim()}`,
+          date: migrated.lastSpokeDate || new Date().toISOString(),
+        };
+        migrated = { ...migrated, notesLog: [summaryNote, ...(migrated.notesLog || [])], summary: '' };
+      } else {
+        migrated = { ...migrated, summary: '' };
+      }
     }
-    if (toMigrate.length > 0) {
-      migrated = { ...migrated, notesLog: [...toMigrate, ...(migrated.notesLog || [])] };
-    }
+
     setFormData(migrated);
   }, [lead]);
 
@@ -2674,8 +2706,8 @@ const LeadDetailView = ({
       {/* ── Two-column body ──────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* ── Sidebar (contact info + details) — top on mobile, right on desktop */}
-        <div className="lg:col-span-1 space-y-5 order-1 lg:order-2">
+        {/* ── Sidebar (contact info + details) — left on desktop */}
+        <div className="lg:col-span-2 space-y-5 order-1 lg:order-1">
 
           {/* Lead Details */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 space-y-4">
@@ -2826,8 +2858,8 @@ const LeadDetailView = ({
           </div>
         </div>
 
-        {/* ── Activity Log (main column, 2/3 width on desktop) */}
-        <div className="lg:col-span-2 order-2 lg:order-1">
+        {/* ── Activity Log (right sidebar, 1/3 width on desktop) */}
+        <div className="lg:col-span-1 order-2 lg:order-2">
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
