@@ -7244,15 +7244,11 @@ export default function App() {
       return { ...newLead, contacts: newContacts };
     }));
 
-    // Remove merged contact from standalone contacts if present
-    setStandaloneContacts(prev => prev.filter(c => {
-      const nameLower = c.name.trim().toLowerCase();
-      const emailLower = c.email?.trim().toLowerCase();
-      return !(
-        nameLower === mergingContact.name.trim().toLowerCase() ||
-        (emailLower && mergingContact.email && emailLower === mergingContact.email.trim().toLowerCase())
-      );
-    }));
+    // Remove merged contact from standalone contacts if present (match by ID, not name/email)
+    const mergingStandaloneId = mergingContact.sources.find(s => s.type === 'standalone')?.id;
+    if (mergingStandaloneId) {
+      setStandaloneContacts(prev => prev.filter(c => c.id !== mergingStandaloneId));
+    }
 
     // Navigate to the kept contact
     setSelectedContactId(keepId);
