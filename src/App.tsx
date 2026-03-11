@@ -6938,7 +6938,7 @@ export default function App() {
           {currentView === 'dashboard' && !selectedDealId && (
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900">Executive Dashboard</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Executive Dashboard</h1>
                 <p className="text-slate-500">Welcome back. Here's your pipeline overview.</p>
               </div>
               <DashboardView
@@ -6956,7 +6956,7 @@ export default function App() {
           {currentView === 'pipeline' && !selectedDealId && (
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900">Pipeline Manager</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Pipeline Manager</h1>
                 <p className="text-slate-500">Manage your active and closed transactions.</p>
               </div>
               <PipelineView
@@ -7021,7 +7021,7 @@ export default function App() {
           {currentView === 'deleted' && !selectedDealId && (
             <div className="animate-in fade-in duration-500">
               <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900">Recently Deleted</h1>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Recently Deleted</h1>
                 <p className="text-slate-500">Restore or permanently delete items.</p>
               </div>
               <RecentlyDeletedView

@@ -1,1 +1,94 @@
 @import "tailwindcss";
+
+/* ── Class-based dark mode ─────────────────────────────────────────────── */
+/* dark: variants respond to the .dark class on an ancestor element         */
+@variant dark (&:where(.dark, .dark *));
+
+/* ── Global dark mode overrides ─────────────────────────────────────────
+   These are outside @layer so they cascade over Tailwind @layer utilities.
+   This gives us comprehensive dark mode without modifying every JSX className.
+*/
+
+/* --- Page / card backgrounds --- */
+.dark .bg-white          { background-color: rgb(30 41 59); }    /* slate-800 */
+.dark .bg-slate-50       { background-color: rgb(22 32 51); }    /* custom dark */
+.dark .bg-slate-100      { background-color: rgb(30 41 59); }    /* slate-800  */
+.dark .bg-slate-200      { background-color: rgb(51 65 85); }    /* slate-700  */
+
+/* Sticky table headers need opaque bg so content doesn't bleed through */
+.dark thead .bg-slate-50,
+.dark .sticky.bg-slate-50 { background-color: rgb(22 32 51); }
+
+/* --- Text --- */
+.dark .text-slate-900    { color: rgb(248 250 252); }  /* slate-50  */
+.dark .text-slate-800    { color: rgb(226 232 240); }  /* slate-200 */
+.dark .text-slate-700    { color: rgb(203 213 225); }  /* slate-300 */
+.dark .text-slate-600    { color: rgb(148 163 184); }  /* slate-400 */
+.dark .text-slate-500    { color: rgb(148 163 184); }  /* slate-400 (stays subtle) */
+.dark .text-slate-400    { color: rgb(100 116 139); }  /* slate-500 */
+
+/* --- Borders --- */
+.dark .border-slate-200  { border-color: rgb(51 65 85); }   /* slate-700 */
+.dark .border-slate-100  { border-color: rgb(51 65 85); }
+.dark .border-slate-300  { border-color: rgb(71 85 105); }  /* slate-600 */
+
+/* --- Divide utilities (adds borders between children) --- */
+.dark .divide-slate-200 > * + * { border-color: rgb(51 65 85); }
+.dark .divide-slate-100 > * + * { border-color: rgb(51 65 85); }
+.dark .divide-y > * + *         { border-color: rgb(51 65 85); }
+
+/* --- Hover overrides: lighter in light mode → subtly highlighted in dark --- */
+.dark .hover\:bg-slate-50:hover  { background-color: rgb(51 65 85); }
+.dark .hover\:bg-slate-100:hover { background-color: rgb(71 85 105); }
+.dark .hover\:bg-white:hover     { background-color: rgb(51 65 85); }
+
+/* --- Form elements (inputs, selects, textareas) --- */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.dark select,
+.dark textarea {
+  background-color: rgb(51 65 85);   /* slate-700 */
+  border-color: rgb(71 85 105);      /* slate-600 */
+  color: rgb(226 232 240);           /* slate-200 */
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: rgb(100 116 139); }
+
+/* --- Indigo accent (active nav, primary buttons bg) --- */
+.dark .bg-indigo-50  { background-color: rgb(49 46 129 / 0.25); }
+.dark .text-indigo-700 { color: rgb(165 180 252); }  /* indigo-300 */
+.dark .text-indigo-600 { color: rgb(165 180 252); }  /* indigo-300 */
+.dark .border-indigo-200 { border-color: rgb(99 102 241 / 0.4); }
+
+/* --- Colored status / type badge backgrounds --- */
+.dark .bg-emerald-50  { background-color: rgb(6 78 59 / 0.3); }
+.dark .bg-emerald-100 { background-color: rgb(6 78 59 / 0.4); }
+.dark .bg-amber-50    { background-color: rgb(120 53 15 / 0.3); }
+.dark .bg-amber-100   { background-color: rgb(120 53 15 / 0.4); }
+.dark .bg-red-50      { background-color: rgb(127 29 29 / 0.3); }
+.dark .bg-red-100     { background-color: rgb(127 29 29 / 0.4); }
+.dark .bg-blue-50     { background-color: rgb(30 58 138 / 0.3); }
+.dark .bg-blue-100    { background-color: rgb(30 58 138 / 0.4); }
+.dark .bg-orange-50   { background-color: rgb(124 45 18 / 0.3); }
+
+/* --- Colored text on badges (make readable on dark badge bg) --- */
+.dark .text-emerald-700 { color: rgb(52 211 153); }   /* emerald-400 */
+.dark .text-amber-700   { color: rgb(251 191 36); }   /* amber-400   */
+.dark .text-red-700     { color: rgb(252 165 165); }  /* red-300     */
+.dark .text-blue-700    { color: rgb(147 197 253); }  /* blue-300    */
+.dark .text-orange-700  { color: rgb(253 186 116); }  /* orange-300  */
+.dark .text-purple-700  { color: rgb(196 181 253); }  /* purple-300  */
+.dark .text-green-700   { color: rgb(74 222 128); }   /* green-400   */
+
+/* --- Recharts chart elements in dark --- */
+.dark .recharts-text    { fill: rgb(148 163 184); }
+.dark .recharts-cartesian-grid line { stroke: rgb(51 65 85); }
+.dark .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background-color: rgb(30 41 59) !important;
+  border-color: rgb(51 65 85) !important;
+  color: rgb(226 232 240) !important;
+}
+
+/* --- Scrollbar styling (webkit) --- */
+.dark ::-webkit-scrollbar-track { background: rgb(15 23 42); }
+.dark ::-webkit-scrollbar-thumb { background: rgb(51 65 85); border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: rgb(71 85 105); }
