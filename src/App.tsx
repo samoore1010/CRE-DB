@@ -4378,11 +4378,13 @@ const TransactionDetailView = ({
   onSave,
   onClose,
   onSelectContact,
+  contacts = [],
 }: {
   transaction: Transaction,
   onSave: (t: Transaction) => void,
   onClose: () => void,
   onSelectContact?: (contactId: string) => void,
+  contacts?: DerivedContact[],
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'financials' | 'parties' | 'timeline' | 'documents'>('overview');
   const [isEditing, setIsEditing] = useState(false);
@@ -4428,6 +4430,12 @@ const TransactionDetailView = ({
   }, [transaction]);
 
   const math = useCommissionMath(formData);
+
+  // --- Party autocomplete ---
+  const [activeSuggestions, setActiveSuggestions] = useState<{ key: string; items: DerivedContact[] } | null>(null);
+  const getContactSuggestions = (value: string) =>
+    value.trim().length < 1 ? [] :
+    contacts.filter(c => c.name.toLowerCase().includes(value.toLowerCase())).slice(0, 5);
 
   // --- Timeline Logic ---
   const addNote = () => {
@@ -4597,30 +4605,6 @@ const TransactionDetailView = ({
       if (idx === 0) return; // primary cannot be removed
       setCombined(side, getCombined(side).filter((_, i) => i !== idx));
     }
-  };
-
-  const dragInfo = React.useRef<{ side: string; idx: number } | null>(null);
-
-  const handleDragStart = (side: string, idx: number) => {
-    dragInfo.current = { side, idx };
-  };
-
-  const handleDropOnParty = (side: 'buyer' | 'seller' | 'third-party', dropIdx: number) => {
-    if (!dragInfo.current || dragInfo.current.side !== side) return;
-    const fromIdx = dragInfo.current.idx;
-    if (fromIdx === dropIdx) return;
-    if (side === 'third-party') {
-      const arr = [...getThirdParties()];
-      const [moved] = arr.splice(fromIdx, 1);
-      arr.splice(dropIdx, 0, moved);
-      setThirdParties(arr);
-    } else {
-      const arr = [...getCombined(side)];
-      const [moved] = arr.splice(fromIdx, 1);
-      arr.splice(dropIdx, 0, moved);
-      setCombined(side, arr);
-    }
-    dragInfo.current = null;
   };
 
   // Legacy shims for Overview widget backward compat
@@ -5168,23 +5152,18 @@ const TransactionDetailView = ({
             const sellers = getCombined('seller');
             const thirds = getThirdParties();
 
-            const PartyGroup = ({
-              side,
-              parties,
-              color,
-              label,
-              addLabel,
-            }: {
-              side: 'buyer' | 'seller' | 'third-party';
-              parties: Party[];
-              color: 'indigo' | 'emerald' | 'slate';
-              label: string;
-              addLabel: string;
-            }) => {
+            // Plain render function (not a component) — avoids React unmounting on every keystroke
+            const renderPartyGroup = (
+              side: 'buyer' | 'seller' | 'third-party',
+              parties: Party[],
+              color: 'indigo' | 'emerald' | 'slate',
+              label: string,
+              addLabel: string,
+            ) => {
               const bg = color === 'indigo' ? 'bg-indigo-100 text-indigo-700' : color === 'emerald' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600';
               const pill = color === 'indigo' ? 'bg-indigo-50 border-indigo-200' : color === 'emerald' ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200';
               return (
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div key={side} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className={cn("flex items-center justify-between px-5 py-3 border-b border-slate-100", color === 'indigo' ? 'bg-indigo-50/60' : color === 'emerald' ? 'bg-emerald-50/60' : 'bg-slate-50')}>
                     <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                       <Users className="w-4 h-4 text-slate-400" />
@@ -5207,20 +5186,15 @@ const TransactionDetailView = ({
                     {parties.map((party, idx) => {
                       const initials = party.name ? party.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : (color === 'indigo' ? 'B' : color === 'emerald' ? 'S' : '?');
                       const isPrimary = side !== 'third-party' && idx === 0;
+                      const suggKey = `${side}-${idx}`;
+                      const suggestions = activeSuggestions?.key === suggKey ? activeSuggestions.items : [];
                       return (
                         <div
                           key={party.id || idx}
-                          draggable={isEditing}
-                          onDragStart={() => handleDragStart(side, idx)}
-                          onDragOver={e => { e.preventDefault(); }}
-                          onDrop={() => handleDropOnParty(side, idx)}
                           className={cn("px-5 py-4 transition-colors", isEditing && "hover:bg-slate-50/80")}
                         >
                           {isEditing ? (
                             <div className="flex items-start gap-3">
-                              <div className="flex flex-col items-center gap-2 pt-1 shrink-0">
-                                <GripVertical className="w-4 h-4 text-slate-300 cursor-grab active:cursor-grabbing" />
-                              </div>
                               <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 {side === 'third-party' && (
                                   <div className="sm:col-span-2">
@@ -5233,13 +5207,47 @@ const TransactionDetailView = ({
                                     />
                                   </div>
                                 )}
-                                <input
-                                  type="text"
-                                  value={party.name}
-                                  onChange={e => updatePartyInGroup(side, idx, 'name', e.target.value)}
-                                  placeholder="Name"
-                                  className="p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
-                                />
+                                <div className="relative sm:col-span-2">
+                                  <input
+                                    type="text"
+                                    value={party.name}
+                                    autoComplete="off"
+                                    onChange={e => {
+                                      updatePartyInGroup(side, idx, 'name', e.target.value);
+                                      const items = getContactSuggestions(e.target.value);
+                                      setActiveSuggestions(items.length > 0 ? { key: suggKey, items } : null);
+                                    }}
+                                    onBlur={() => setTimeout(() => setActiveSuggestions(null), 150)}
+                                    placeholder="Name"
+                                    className="w-full p-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                  />
+                                  {suggestions.length > 0 && (
+                                    <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                                      {suggestions.map(c => (
+                                        <button
+                                          key={c.id}
+                                          type="button"
+                                          onMouseDown={() => {
+                                            updatePartyInGroup(side, idx, 'name', c.name);
+                                            if (c.entity) updatePartyInGroup(side, idx, 'entity', c.entity);
+                                            if (c.email) updatePartyInGroup(side, idx, 'email', c.email);
+                                            if (c.phone) updatePartyInGroup(side, idx, 'phone', c.phone);
+                                            setActiveSuggestions(null);
+                                          }}
+                                          className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2"
+                                        >
+                                          <div className={cn("w-5 h-5 rounded-full flex items-center justify-center font-bold text-xs shrink-0", bg)}>
+                                            {c.name[0]}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="text-xs font-medium text-slate-900 truncate">{c.name}</p>
+                                            {c.entity && <p className="text-xs text-slate-400 truncate">{c.entity}</p>}
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                                 <input
                                   type="text"
                                   value={party.entity || ''}
@@ -5308,9 +5316,9 @@ const TransactionDetailView = ({
 
             return (
               <div className="space-y-4 animate-in fade-in duration-300">
-                <PartyGroup side="buyer" parties={buyers} color="indigo" label="Buyers" addLabel="Add Buyer" />
-                <PartyGroup side="seller" parties={sellers} color="emerald" label="Sellers" addLabel="Add Seller" />
-                <PartyGroup side="third-party" parties={thirds} color="slate" label="Third Parties" addLabel="Add Third Party" />
+                {renderPartyGroup('buyer', buyers, 'indigo', 'Buyers', 'Add Buyer')}
+                {renderPartyGroup('seller', sellers, 'emerald', 'Sellers', 'Add Seller')}
+                {renderPartyGroup('third-party', thirds, 'slate', 'Third Parties', 'Add Third Party')}
               </div>
             );
           })()}
@@ -7031,6 +7039,7 @@ export default function App() {
               transaction={selectedTransaction}
               onSave={handleUpdateTransaction}
               onClose={() => { setSelectedDealId(null); }}
+              contacts={allContacts}
               onSelectContact={(contactId) => {
                 setSelectedContactId(contactId);
                 setSelectedDealId(null);
