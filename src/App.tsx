@@ -422,7 +422,7 @@ const DocumentSection = ({
           </label>
         </div>
 
-        {documents.length === 0 ? (
+        {(documents || []).length === 0 ? (
           <div className="text-center py-12 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
             <File className="w-12 h-12 text-slate-300 mx-auto mb-3" />
             <p className="text-slate-500 font-medium">No documents uploaded</p>
@@ -430,7 +430,7 @@ const DocumentSection = ({
           </div>
         ) : (
           <div className="space-y-3">
-            {documents.map(doc => (
+            {(documents || []).map(doc => (
               <div key={doc.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 group hover:bg-slate-100 transition-colors">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center text-indigo-600">
@@ -4402,6 +4402,7 @@ const TransactionDetailView = ({
       buyer: norm(transaction.buyer),
       seller: norm(transaction.seller),
       otherParties: transaction.otherParties.map(norm),
+      documents: transaction.documents || [],
     };
   });
 
@@ -4425,7 +4426,7 @@ const TransactionDetailView = ({
 
   // Reset form data when transaction changes
   useEffect(() => {
-    setFormData(transaction);
+    setFormData({ ...transaction, documents: transaction.documents || [] });
     setIsEditing(false);
   }, [transaction]);
 
