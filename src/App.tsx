@@ -2971,6 +2971,7 @@ const QuickEditTransactionDrawer = ({
   const [sellerName, setSellerName] = useState(isBulk ? '' : (t0.seller?.name || ''));
   const [price, setPrice] = useState(isBulk ? '' : (t0.price ? String(t0.price) : ''));
   const [coeDate, setCoeDate] = useState(isBulk ? '' : (t0.coeDate || ''));
+  const [projectYear, setProjectYear] = useState(isBulk ? '' : (t0.projectYear || ''));
   const [grossCommPct, setGrossCommPct] = useState(isBulk ? '' : (t0.grossCommissionPercent != null ? String(t0.grossCommissionPercent) : ''));
   const [laoCutPct, setLaoCutPct] = useState(isBulk ? '' : (t0.laoCutPercent != null ? String(t0.laoCutPercent) : ''));
   const [treySplit, setTreySplit] = useState<number>(isBulk ? 60 : (t0.treySplitPercent ?? 60));
@@ -3003,6 +3004,7 @@ const QuickEditTransactionDrawer = ({
       { label: 'Seller', hasValue: t => !!(t.seller?.name), newValFilled: !!sellerName },
       { label: 'Price', hasValue: t => !!(t.price), newValFilled: !!price },
       { label: 'COE Date', hasValue: t => !!(t.coeDate), newValFilled: !!coeDate },
+      { label: 'Origination Year', hasValue: t => !!(t.projectYear), newValFilled: !!projectYear },
       { label: 'Gross Commission %', hasValue: t => t.grossCommissionPercent != null, newValFilled: !!grossCommPct },
       { label: 'LAO Cut %', hasValue: t => t.laoCutPercent != null, newValFilled: !!laoCutPct },
       { label: 'Trey / Kirk Split', hasValue: t => t.treySplitPercent != null, newValFilled: splitsModified },
@@ -3037,6 +3039,7 @@ const QuickEditTransactionDrawer = ({
       if (!isBulk || sellerName) next = { ...next, seller: { ...next.seller, name: sellerName || next.seller?.name || '' } };
       if (!isBulk || price) next = { ...next, price: parseFloat(price) || next.price };
       if (!isBulk || coeDate) next = { ...next, coeDate: coeDate || next.coeDate };
+      if (!isBulk || projectYear) next = { ...next, projectYear: projectYear || next.projectYear };
       if (!isBulk || grossCommPct) next = { ...next, grossCommissionPercent: grossCommPct !== '' ? parseFloat(grossCommPct) : next.grossCommissionPercent };
       if (!isBulk || laoCutPct) next = { ...next, laoCutPercent: laoCutPct !== '' ? parseFloat(laoCutPct) : next.laoCutPercent };
       if (!isBulk || splitsModified) next = { ...next, treySplitPercent: treySplit, kirkSplitPercent: kirkSplit };
@@ -3157,6 +3160,13 @@ const QuickEditTransactionDrawer = ({
                 </label>
                 <input type="date" value={coeDate} onChange={e => setCoeDate(e.target.value)}
                   className={inputClass(!isBulk && missingKeys.has('coeDate'))} />
+              </div>
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  Origination Year
+                </label>
+                <input type="number" value={projectYear} onChange={e => setProjectYear(e.target.value)}
+                  className={inputClass(false)} placeholder={String(new Date().getFullYear())} min="2000" max="2100" />
               </div>
             </div>
           </div>
@@ -4789,6 +4799,10 @@ const TransactionDetailView = ({
                           <label className="block text-xs font-medium text-slate-500 mb-1">APN / Parcel ID</label>
                           <input type="text" value={formData.apn || ''} onChange={e => handleInputChange('apn', e.target.value)} className="w-full p-2 border rounded-lg text-sm" />
                         </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Origination Year</label>
+                          <input type="number" value={formData.projectYear || new Date().getFullYear()} onChange={e => handleInputChange('projectYear', e.target.value)} className="w-full p-2 border rounded-lg text-sm" min="2000" max="2100" />
+                        </div>
                       </>
                     ) : (
                       <>
@@ -4799,6 +4813,10 @@ const TransactionDetailView = ({
                         <div className="py-2 border-b border-slate-50">
                           <span className="text-slate-500 text-xs block mb-1">County</span>
                           <span className="font-medium text-slate-900">{formData.county || '-'}</span>
+                        </div>
+                        <div className="py-2 border-b border-slate-50">
+                          <span className="text-slate-500 text-xs block mb-1">Origination Year</span>
+                          <span className="font-medium text-slate-900">{formData.projectYear || '-'}</span>
                         </div>
                       </>
                     )}
@@ -5571,8 +5589,10 @@ const NewTransactionModal = ({
     seller: { role: 'Seller', name: '', entity: '' },
     otherParties: [],
     customDates: [],
+    documents: [],
     apn: '',
-    county: ''
+    county: '',
+    projectYear: new Date().getFullYear().toString()
   });
 
   const math = useCommissionMath(formData);
@@ -5727,11 +5747,23 @@ const NewTransactionModal = ({
 
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Price ($)</label>
-                      <input 
-                        type="number" 
-                        value={formData.price} 
+                      <input
+                        type="number"
+                        value={formData.price}
                         onChange={e => handleInputChange('price', Number(e.target.value))}
                         className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Origination Year</label>
+                      <input
+                        type="number"
+                        value={formData.projectYear || new Date().getFullYear()}
+                        onChange={e => handleInputChange('projectYear', e.target.value)}
+                        className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        min="2000"
+                        max="2100"
                       />
                     </div>
                   </div>
