@@ -4,91 +4,144 @@
 /* dark: variants respond to the .dark class on an ancestor element         */
 @variant dark (&:where(.dark, .dark *));
 
-/* ── Global dark mode overrides ─────────────────────────────────────────
-   These are outside @layer so they cascade over Tailwind @layer utilities.
-   This gives us comprehensive dark mode without modifying every JSX className.
-*/
+/* ════════════════════════════════════════════════════════════════════════════
+   DARK MODE — "Midnight Navy" Theme
 
-/* --- Page / card backgrounds --- */
-.dark .bg-white          { background-color: rgb(30 41 59); }    /* slate-800 */
-.dark .bg-slate-50       { background-color: rgb(22 32 51); }    /* custom dark */
-.dark .bg-slate-100      { background-color: rgb(30 41 59); }    /* slate-800  */
-.dark .bg-slate-200      { background-color: rgb(51 65 85); }    /* slate-700  */
+   Palette philosophy:
+   - Deep blue-navy base (not black) for warmth and depth
+   - Four clear elevation tiers so surfaces are always distinguishable
+   - Cool-tinted text that's easy to read at every weight
+   - Accent / status colors are brighter, not just lightened
 
-/* Sticky table headers need opaque bg so content doesn't bleed through */
+   Tier  Surface            Hex       Usage
+   ────  ─────────────────  ────────  ─────────────────────────────────
+   0     Page background    #0c1220   Root / sidebar / page bg
+   1     Content bg         #111827   Main content area, section rows
+   2     Card surface       #1b2537   Cards, panels, inputs
+   3     Elevated surface   #22304a   Dropdowns, modals, hover states
+
+   These rules live outside @layer so they cascade over Tailwind utilities.
+════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Backgrounds ─────────────────────────────────────────────────────────── */
+
+/* Tier 0  — deepest layer, page/sidebar */
+.dark .bg-slate-50        { background-color: #111827; }
+
+/* Tier 1  — main content sections */
+/* (no direct mapping needed; page bg is tier 0, cards are tier 2)          */
+
+/* Tier 2  — card / panel surface */
+.dark .bg-white           { background-color: #1b2537; }
+.dark .bg-slate-100       { background-color: #1b2537; }
+
+/* Tier 3  — elevated / selected / subtle accent */
+.dark .bg-slate-200       { background-color: #22304a; }
+
+/* Sticky / opaque elements (table headers, fixed bars) */
 .dark thead .bg-slate-50,
-.dark .sticky.bg-slate-50 { background-color: rgb(22 32 51); }
+.dark .sticky.bg-slate-50  { background-color: #111827; }
+.dark thead .bg-white,
+.dark .sticky.bg-white     { background-color: #1b2537; }
 
-/* --- Text --- */
-.dark .text-slate-900    { color: rgb(248 250 252); }  /* slate-50  */
-.dark .text-slate-800    { color: rgb(226 232 240); }  /* slate-200 */
-.dark .text-slate-700    { color: rgb(203 213 225); }  /* slate-300 */
-.dark .text-slate-600    { color: rgb(148 163 184); }  /* slate-400 */
-.dark .text-slate-500    { color: rgb(148 163 184); }  /* slate-400 (stays subtle) */
-.dark .text-slate-400    { color: rgb(100 116 139); }  /* slate-500 */
+/* ── Text ────────────────────────────────────────────────────────────────── */
 
-/* --- Borders --- */
-.dark .border-slate-200  { border-color: rgb(51 65 85); }   /* slate-700 */
-.dark .border-slate-100  { border-color: rgb(51 65 85); }
-.dark .border-slate-300  { border-color: rgb(71 85 105); }  /* slate-600 */
+.dark .text-slate-900     { color: #dce7f5; }   /* primary — cool off-white   */
+.dark .text-slate-800     { color: #b8ccdf; }   /* strong secondary           */
+.dark .text-slate-700     { color: #90a8c3; }   /* body copy                  */
+.dark .text-slate-600     { color: #6a8bac; }   /* subdued                    */
+.dark .text-slate-500     { color: #4e6e8a; }   /* muted labels               */
+.dark .text-slate-400     { color: #3a5470; }   /* very muted / de-emphasized */
+.dark .text-slate-300     { color: #2c4260; }   /* near-invisible dividers    */
 
-/* --- Divide utilities (adds borders between children) --- */
-.dark .divide-slate-200 > * + * { border-color: rgb(51 65 85); }
-.dark .divide-slate-100 > * + * { border-color: rgb(51 65 85); }
-.dark .divide-y > * + *         { border-color: rgb(51 65 85); }
+/* ── Borders ─────────────────────────────────────────────────────────────── */
 
-/* --- Hover overrides: lighter in light mode → subtly highlighted in dark --- */
-.dark .hover\:bg-slate-50:hover  { background-color: rgb(51 65 85); }
-.dark .hover\:bg-slate-100:hover { background-color: rgb(71 85 105); }
-.dark .hover\:bg-white:hover     { background-color: rgb(51 65 85); }
+.dark .border-slate-50    { border-color: #192335; }
+.dark .border-slate-100   { border-color: #1e2f47; }
+.dark .border-slate-200   { border-color: #243450; }
+.dark .border-slate-300   { border-color: #2d4062; }
 
-/* --- Form elements (inputs, selects, textareas) --- */
+/* ── Dividers ────────────────────────────────────────────────────────────── */
+
+.dark .divide-slate-200 > * + * { border-color: #243450; }
+.dark .divide-slate-100 > * + * { border-color: #1e2f47; }
+.dark .divide-y > * + *         { border-color: #243450; }
+
+/* ── Hover states ────────────────────────────────────────────────────────── */
+
+.dark .hover\:bg-slate-50:hover   { background-color: #1b2537; }
+.dark .hover\:bg-slate-100:hover  { background-color: #22304a; }
+.dark .hover\:bg-white:hover      { background-color: #22304a; }
+
+/* ── Form elements ───────────────────────────────────────────────────────── */
+
 .dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .dark select,
 .dark textarea {
-  background-color: rgb(51 65 85);   /* slate-700 */
-  border-color: rgb(71 85 105);      /* slate-600 */
-  color: rgb(226 232 240);           /* slate-200 */
+  background-color: #1b2537;
+  border-color: #2d4062;
+  color: #dce7f5;
 }
 .dark input::placeholder,
-.dark textarea::placeholder { color: rgb(100 116 139); }
+.dark textarea::placeholder { color: #4e6e8a; }
 
-/* --- Indigo accent (active nav, primary buttons bg) --- */
-.dark .bg-indigo-50  { background-color: rgb(49 46 129 / 0.25); }
-.dark .text-indigo-700 { color: rgb(165 180 252); }  /* indigo-300 */
-.dark .text-indigo-600 { color: rgb(165 180 252); }  /* indigo-300 */
-.dark .border-indigo-200 { border-color: rgb(99 102 241 / 0.4); }
+/* ── Indigo accent (nav active state, primary buttons) ───────────────────── */
 
-/* --- Colored status / type badge backgrounds --- */
-.dark .bg-emerald-50  { background-color: rgb(6 78 59 / 0.3); }
-.dark .bg-emerald-100 { background-color: rgb(6 78 59 / 0.4); }
-.dark .bg-amber-50    { background-color: rgb(120 53 15 / 0.3); }
-.dark .bg-amber-100   { background-color: rgb(120 53 15 / 0.4); }
-.dark .bg-red-50      { background-color: rgb(127 29 29 / 0.3); }
-.dark .bg-red-100     { background-color: rgb(127 29 29 / 0.4); }
-.dark .bg-blue-50     { background-color: rgb(30 58 138 / 0.3); }
-.dark .bg-blue-100    { background-color: rgb(30 58 138 / 0.4); }
-.dark .bg-orange-50   { background-color: rgb(124 45 18 / 0.3); }
+.dark .bg-indigo-50       { background-color: rgba(79, 70, 229, 0.15); }
+.dark .bg-indigo-100      { background-color: rgba(79, 70, 229, 0.20); }
+.dark .text-indigo-600    { color: #a5b4fc; }   /* indigo-300 — bright on dark */
+.dark .text-indigo-700    { color: #a5b4fc; }
+.dark .text-indigo-800    { color: #c7d2fe; }   /* indigo-200 */
+.dark .border-indigo-200  { border-color: rgba(99, 102, 241, 0.35); }
+.dark .border-indigo-400  { border-color: rgba(99, 102, 241, 0.55); }
+.dark .border-indigo-500  { border-color: rgba(99, 102, 241, 0.65); }
 
-/* --- Colored text on badges (make readable on dark badge bg) --- */
-.dark .text-emerald-700 { color: rgb(52 211 153); }   /* emerald-400 */
-.dark .text-amber-700   { color: rgb(251 191 36); }   /* amber-400   */
-.dark .text-red-700     { color: rgb(252 165 165); }  /* red-300     */
-.dark .text-blue-700    { color: rgb(147 197 253); }  /* blue-300    */
-.dark .text-orange-700  { color: rgb(253 186 116); }  /* orange-300  */
-.dark .text-purple-700  { color: rgb(196 181 253); }  /* purple-300  */
-.dark .text-green-700   { color: rgb(74 222 128); }   /* green-400   */
+/* ── Status / stage badge backgrounds ───────────────────────────────────── */
 
-/* --- Recharts chart elements in dark --- */
-.dark .recharts-text    { fill: rgb(148 163 184); }
-.dark .recharts-cartesian-grid line { stroke: rgb(51 65 85); }
+.dark .bg-emerald-50      { background-color: rgba(6,  95, 70,  0.30); }
+.dark .bg-emerald-100     { background-color: rgba(6,  95, 70,  0.45); }
+.dark .bg-amber-50        { background-color: rgba(120, 53, 15, 0.30); }
+.dark .bg-amber-100       { background-color: rgba(120, 53, 15, 0.45); }
+.dark .bg-red-50          { background-color: rgba(127, 29, 29, 0.30); }
+.dark .bg-red-100         { background-color: rgba(127, 29, 29, 0.45); }
+.dark .bg-blue-50         { background-color: rgba(30,  58, 138, 0.30); }
+.dark .bg-blue-100        { background-color: rgba(30,  58, 138, 0.45); }
+.dark .bg-orange-50       { background-color: rgba(124, 45, 18,  0.30); }
+.dark .bg-orange-100      { background-color: rgba(124, 45, 18,  0.45); }
+.dark .bg-purple-50       { background-color: rgba(88,  28, 135, 0.30); }
+.dark .bg-purple-100      { background-color: rgba(88,  28, 135, 0.45); }
+
+/* ── Status / stage badge text ──────────────────────────────────────────── */
+
+.dark .text-emerald-600   { color: #34d399; }   /* emerald-400 */
+.dark .text-emerald-700   { color: #34d399; }
+.dark .text-amber-500     { color: #fbbf24; }   /* amber-400   */
+.dark .text-amber-600     { color: #fbbf24; }
+.dark .text-amber-700     { color: #fbbf24; }
+.dark .text-red-500       { color: #f87171; }   /* red-400     */
+.dark .text-red-600       { color: #f87171; }
+.dark .text-red-700       { color: #fca5a5; }   /* red-300     */
+.dark .text-blue-600      { color: #60a5fa; }   /* blue-400    */
+.dark .text-blue-700      { color: #93c5fd; }   /* blue-300    */
+.dark .text-orange-600    { color: #fb923c; }   /* orange-400  */
+.dark .text-orange-700    { color: #fdba74; }   /* orange-300  */
+.dark .text-purple-600    { color: #c084fc; }   /* purple-400  */
+.dark .text-purple-700    { color: #d8b4fe; }   /* purple-300  */
+.dark .text-green-600     { color: #4ade80; }   /* green-400   */
+.dark .text-green-700     { color: #4ade80; }
+
+/* ── Recharts ────────────────────────────────────────────────────────────── */
+
+.dark .recharts-text { fill: #6a8bac; }
+.dark .recharts-cartesian-grid line { stroke: #243450; }
 .dark .recharts-tooltip-wrapper .recharts-default-tooltip {
-  background-color: rgb(30 41 59) !important;
-  border-color: rgb(51 65 85) !important;
-  color: rgb(226 232 240) !important;
+  background-color: #1b2537 !important;
+  border-color: #2d4062 !important;
+  color: #dce7f5 !important;
 }
 
-/* --- Scrollbar styling (webkit) --- */
-.dark ::-webkit-scrollbar-track { background: rgb(15 23 42); }
-.dark ::-webkit-scrollbar-thumb { background: rgb(51 65 85); border-radius: 4px; }
-.dark ::-webkit-scrollbar-thumb:hover { background: rgb(71 85 105); }
+/* ── Scrollbars (webkit) ─────────────────────────────────────────────────── */
+
+.dark ::-webkit-scrollbar-track { background: #0c1220; }
+.dark ::-webkit-scrollbar-thumb { background: #243450; border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #2d4062; }
