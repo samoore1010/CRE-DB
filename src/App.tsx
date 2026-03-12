@@ -53,7 +53,15 @@ import {
   Eye,
   BookUser,
   ChevronLeft,
-  GitMerge
+  GitMerge,
+  Inbox,
+  AtSign,
+  Paperclip,
+  ExternalLink,
+  Tag,
+  MailOpen,
+  MailCheck,
+  Reply
 } from 'lucide-react';
 import { 
   format, 
@@ -278,7 +286,41 @@ interface TransactionDocument {
   type: string;
   size: number;
   dateUploaded: string;
-  url?: string; // In a real app, this would be a URL. For now we might use blob URLs.
+  url?: string;
+  // Set when this document was created from an email
+  sourceEmailId?: string;
+  emailBodyText?: string;
+  emailBodyHtml?: string;
+}
+
+interface InboxAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  data: string; // base64
+}
+
+interface InboxItem {
+  id: string;
+  from: string;
+  fromName: string;
+  fromRaw?: string;
+  to: string;
+  subject: string;
+  bodyText: string;
+  bodyHtml?: string;
+  receivedAt: string;
+  isRead: boolean;
+  attachments: InboxAttachment[];
+  avatarColor?: string;
+  assignedTo?: {
+    type: 'transaction' | 'lead';
+    id: string;
+    name: string;
+  } | null;
+  isDeleted?: boolean;
+  deletedAt?: string;
 }
 
 interface LeadContact {
@@ -509,14 +551,54 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend }: any) => (
 
 // --- New Components ---
 
-const DocumentSection = ({ 
-  documents, 
-  onUpload, 
-  onDelete 
-}: { 
-  documents: TransactionDocument[], 
-  onUpload: (docs: TransactionDocument[]) => void, 
-  onDelete: (id: string) => void 
+const EmailDocumentRow = ({ doc, onDelete }: { doc: TransactionDocument; onDelete: (id: string) => void }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isBodyDoc = doc.type === 'email';
+  return (
+    <div className="rounded-lg border border-indigo-100 bg-indigo-50/30 overflow-hidden group">
+      <div className="flex items-center justify-between p-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 bg-white rounded-lg border border-indigo-200 flex items-center justify-center text-indigo-500 shrink-0">
+            <AtSign className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-medium text-slate-900 truncate">{doc.name}</p>
+            <p className="text-xs text-slate-500">{format(parseISO(doc.dateUploaded), 'MMM d, yyyy')} • Via Email</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {isBodyDoc && doc.emailBodyText && (
+            <button onClick={() => setExpanded(e => !e)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all" title={expanded ? 'Collapse' : 'Preview'}>
+              <ChevronRight className={cn("w-4 h-4 transition-transform", expanded && "rotate-90")} />
+            </button>
+          )}
+          {doc.url && !isBodyDoc && (
+            <a href={doc.url} download={doc.name} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all" title="Download">
+              <Download className="w-4 h-4" />
+            </a>
+          )}
+          <button onClick={() => onDelete(doc.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-white rounded-lg transition-all" title="Delete">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      {expanded && doc.emailBodyText && (
+        <div className="px-4 pb-4 border-t border-indigo-100">
+          <p className="text-xs text-slate-600 mt-3 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">{doc.emailBodyText}</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const DocumentSection = ({
+  documents,
+  onUpload,
+  onDelete
+}: {
+  documents: TransactionDocument[],
+  onUpload: (docs: TransactionDocument[]) => void,
+  onDelete: (id: string) => void
 }) => {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -555,38 +637,43 @@ const DocumentSection = ({
         ) : (
           <div className="space-y-3">
             {(documents || []).map(doc => (
-              <div key={doc.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 group hover:bg-slate-100 transition-colors">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center text-indigo-600">
-                    <FileText className="w-5 h-5" />
+              doc.sourceEmailId ? (
+                // Email-sourced document
+                <EmailDocumentRow key={doc.id} doc={doc} onDelete={onDelete} />
+              ) : (
+                <div key={doc.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200 group hover:bg-slate-100 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center text-indigo-600">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-900">{doc.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {format(parseISO(doc.dateUploaded), 'MMM d, yyyy')} • {(doc.size / 1024).toFixed(0)} KB
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-slate-900">{doc.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {format(parseISO(doc.dateUploaded), 'MMM d, yyyy')} • {(doc.size / 1024).toFixed(0)} KB
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {doc.url && (
-                    <a 
-                      href={doc.url} 
-                      download={doc.name}
-                      className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all"
-                      title="Download"
+                  <div className="flex items-center gap-2">
+                    {doc.url && (
+                      <a
+                        href={doc.url}
+                        download={doc.name}
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all"
+                        title="Download"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                    )}
+                    <button
+                      onClick={() => onDelete(doc.id)}
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-white rounded-lg transition-all"
+                      title="Delete"
                     >
-                      <Download className="w-4 h-4" />
-                    </a>
-                  )}
-                  <button 
-                    onClick={() => onDelete(doc.id)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-white rounded-lg transition-all"
-                    title="Delete"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )
             ))}
           </div>
         )}
@@ -1451,7 +1538,7 @@ const DataManagementView = ({
   );
 };
 
-const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, darkMode?: boolean }) => {
+const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, onNavigateToInbox, inboxItems, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, onNavigateToInbox?: () => void, inboxItems?: InboxItem[], darkMode?: boolean }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showQuickReminder, setShowQuickReminder] = useState(false);
   const [quickReminderTarget, setQuickReminderTarget] = useState<{ id: string, type: 'transaction' | 'lead' }>({ id: '', type: 'transaction' });
@@ -2249,6 +2336,42 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
               )}
             </div>
           </div>
+          {/* Inbox Preview Widget */}
+          {inboxItems && inboxItems.filter(i => !i.isDeleted).length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
+                  <Inbox className="w-4 h-4 text-slate-500" /> Inbox
+                  {inboxItems.filter(i => !i.isRead && !i.isDeleted).length > 0 && (
+                    <span className="bg-indigo-600 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
+                      {inboxItems.filter(i => !i.isRead && !i.isDeleted).length}
+                    </span>
+                  )}
+                </h3>
+                {onNavigateToInbox && (
+                  <button onClick={onNavigateToInbox} className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 uppercase tracking-wider">
+                    View All <ChevronRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+              <div className="space-y-2">
+                {inboxItems.filter(i => !i.isDeleted).slice(0, 4).map(email => (
+                  <div key={email.id} onClick={onNavigateToInbox} className={cn("flex items-start gap-3 p-2.5 rounded-xl border cursor-pointer hover:bg-slate-50 transition-all", email.isRead ? "border-slate-100" : "border-indigo-100 bg-indigo-50/40")}>
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ backgroundColor: email.avatarColor || '#6366f1' }}>
+                      {(email.fromName || email.from).slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <p className={cn("text-xs leading-tight truncate", email.isRead ? "text-slate-600" : "font-bold text-slate-900")}>{email.fromName || email.from}</p>
+                        {!email.isRead && <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full shrink-0" />}
+                      </div>
+                      <p className="text-[10px] text-slate-500 truncate">{email.subject}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -6903,6 +7026,552 @@ const NewTransactionModal = ({
   );
 };
 
+// --- Email Inbox View ---
+
+// Sanitize HTML for safe inline display (strips script/style/iframe tags)
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi, '')
+    .replace(/on\w+="[^"]*"/gi, '')
+    .replace(/on\w+='[^']*'/gi, '');
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatEmailDate(iso: string): string {
+  try {
+    const d = parseISO(iso);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+    if (diffDays === 0) return format(d, 'h:mm a');
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return format(d, 'EEEE');
+    return format(d, 'MMM d');
+  } catch { return ''; }
+}
+
+// Assignment Modal
+const AssignEmailModal = ({
+  email,
+  transactions,
+  leads,
+  onAssign,
+  onClose,
+  darkMode,
+}: {
+  email: InboxItem;
+  transactions: Transaction[];
+  leads: Lead[];
+  onAssign: (target: { type: 'transaction' | 'lead'; id: string; name: string }) => void;
+  onClose: () => void;
+  darkMode?: boolean;
+}) => {
+  const [search, setSearch] = useState('');
+  const [tab, setTab] = useState<'transaction' | 'lead'>('transaction');
+
+  const filteredTx = useMemo(() => {
+    const q = search.toLowerCase();
+    return transactions
+      .filter(t => !t.isDeleted && (t.dealName.toLowerCase().includes(q) || t.address?.toLowerCase().includes(q)))
+      .slice(0, 8);
+  }, [transactions, search]);
+
+  const filteredLeads = useMemo(() => {
+    const q = search.toLowerCase();
+    return leads
+      .filter(l => !l.isDeleted && (l.projectName.toLowerCase().includes(q) || l.contactName?.toLowerCase().includes(q)))
+      .slice(0, 8);
+  }, [leads, search]);
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
+        variants={backdropVariants} initial="hidden" animate="visible" exit="exit"
+        onClick={onClose}
+      >
+        <motion.div
+          className={cn("w-full max-w-md rounded-xl shadow-2xl overflow-hidden", darkMode ? "bg-slate-800" : "bg-white")}
+          variants={modalVariants} initial="hidden" animate="visible" exit="exit"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className={cn("p-5 border-b flex items-start justify-between gap-3", darkMode ? "border-slate-700" : "border-slate-200")}>
+            <div className="min-w-0">
+              <h3 className={cn("font-bold text-base", darkMode ? "text-white" : "text-slate-900")}>Assign to Deal or Lead</h3>
+              <p className={cn("text-xs mt-0.5 truncate", darkMode ? "text-slate-400" : "text-slate-500")}>"{email.subject}"</p>
+            </div>
+            <button onClick={onClose} className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg transition-colors shrink-0">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Type tabs */}
+          <div className={cn("flex border-b", darkMode ? "border-slate-700" : "border-slate-200")}>
+            {(['transaction', 'lead'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  "flex-1 py-2.5 text-sm font-medium transition-colors",
+                  tab === t
+                    ? "border-b-2 border-indigo-500 text-indigo-600"
+                    : darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700"
+                )}
+              >
+                {t === 'transaction' ? 'Transaction' : 'Lead'}
+              </button>
+            ))}
+          </div>
+
+          {/* Search */}
+          <div className="p-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                autoFocus
+                type="text"
+                placeholder={tab === 'transaction' ? "Search deals…" : "Search leads…"}
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className={cn(
+                  "w-full pl-9 pr-3 py-2 text-sm rounded-lg border focus:outline-none focus:ring-2 focus:ring-indigo-500",
+                  darkMode ? "bg-slate-700 border-slate-600 text-white placeholder-slate-400" : "border-slate-200 bg-white text-slate-900"
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Results list */}
+          <div className="max-h-64 overflow-y-auto px-3 pb-3 space-y-1">
+            {tab === 'transaction' ? (
+              filteredTx.length === 0
+                ? <p className="text-center text-sm text-slate-400 py-6">No matching transactions</p>
+                : filteredTx.map(tx => (
+                  <button
+                    key={tx.id}
+                    onClick={() => { onAssign({ type: 'transaction', id: tx.id, name: tx.dealName }); onClose(); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between gap-2",
+                      darkMode ? "hover:bg-slate-700 text-slate-200" : "hover:bg-slate-50 text-slate-900"
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate">{tx.dealName}</p>
+                      <p className="text-xs text-slate-500 truncate">{tx.address || tx.stage}</p>
+                    </div>
+                    <StatusBadge stage={tx.stage} />
+                  </button>
+                ))
+            ) : (
+              filteredLeads.length === 0
+                ? <p className="text-center text-sm text-slate-400 py-6">No matching leads</p>
+                : filteredLeads.map(lead => (
+                  <button
+                    key={lead.id}
+                    onClick={() => { onAssign({ type: 'lead', id: lead.id, name: lead.projectName }); onClose(); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2.5 rounded-lg transition-colors",
+                      darkMode ? "hover:bg-slate-700 text-slate-200" : "hover:bg-slate-50 text-slate-900"
+                    )}
+                  >
+                    <p className="font-medium text-sm truncate">{lead.projectName}</p>
+                    <p className="text-xs text-slate-500 truncate">{lead.contactName} · {lead.type}</p>
+                  </button>
+                ))
+            )}
+          </div>
+
+          <div className={cn("p-3 border-t text-xs text-center", darkMode ? "border-slate-700 text-slate-500" : "border-slate-100 text-slate-400")}>
+            Assigning will add this email to the deal's Documents tab
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
+const InboxView = ({
+  items,
+  transactions,
+  leads,
+  onMarkRead,
+  onDelete,
+  onAssign,
+  darkMode,
+}: {
+  items: InboxItem[];
+  transactions: Transaction[];
+  leads: Lead[];
+  onMarkRead: (id: string, isRead: boolean) => void;
+  onDelete: (id: string) => void;
+  onAssign: (emailId: string, target: { type: 'transaction' | 'lead'; id: string; name: string }) => void;
+  darkMode?: boolean;
+}) => {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'unread' | 'assigned'>('all');
+  const [search, setSearch] = useState('');
+  const [assignTarget, setAssignTarget] = useState<InboxItem | null>(null);
+  const [showHtmlView, setShowHtmlView] = useState(false);
+
+  const filtered = useMemo(() => {
+    let list = items.filter(i => !i.isDeleted);
+    if (filter === 'unread') list = list.filter(i => !i.isRead);
+    if (filter === 'assigned') list = list.filter(i => !!i.assignedTo);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(i =>
+        i.subject.toLowerCase().includes(q) ||
+        i.fromName.toLowerCase().includes(q) ||
+        i.from.toLowerCase().includes(q) ||
+        i.bodyText.toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [items, filter, search]);
+
+  const selected = items.find(i => i.id === selectedId) ?? null;
+
+  // Auto-select first when list changes and nothing selected
+  useEffect(() => {
+    if (!selectedId && filtered.length > 0) setSelectedId(filtered[0].id);
+  }, [filtered]);
+
+  // Mark as read when opened
+  useEffect(() => {
+    if (selected && !selected.isRead) onMarkRead(selected.id, true);
+  }, [selected?.id]);
+
+  const unreadCount = items.filter(i => !i.isRead && !i.isDeleted).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Page header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className={cn("text-xl sm:text-2xl font-bold flex items-center gap-2", darkMode ? "text-white" : "text-slate-900")}>
+            <Inbox className="w-6 h-6 text-indigo-500" /> Email Inbox
+            {unreadCount > 0 && (
+              <span className="text-sm font-bold bg-indigo-600 text-white px-2 py-0.5 rounded-full">{unreadCount}</span>
+            )}
+          </h1>
+          <p className={cn("text-sm mt-0.5", darkMode ? "text-slate-400" : "text-slate-500")}>
+            Emails forwarded to your dedicated pipeline address
+          </p>
+        </div>
+      </div>
+
+      {/* Main two-pane card */}
+      <div className={cn(
+        "rounded-xl border shadow-sm overflow-hidden flex",
+        "min-h-[600px]",
+        darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
+      )}>
+
+        {/* LEFT — list pane */}
+        <div className={cn(
+          "flex flex-col shrink-0 border-r",
+          selected ? "hidden lg:flex lg:w-80 xl:w-96" : "flex w-full",
+          darkMode ? "border-slate-700" : "border-slate-200"
+        )}>
+          {/* Toolbar */}
+          <div className={cn("p-3 border-b space-y-2", darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50")}>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search inbox…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className={cn(
+                  "w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border focus:outline-none focus:ring-2 focus:ring-indigo-500",
+                  darkMode ? "bg-slate-700 border-slate-600 text-white placeholder-slate-400" : "bg-white border-slate-200"
+                )}
+              />
+            </div>
+            <div className="flex gap-1">
+              {(['all', 'unread', 'assigned'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md text-xs font-medium capitalize transition-colors",
+                    filter === f
+                      ? "bg-indigo-600 text-white"
+                      : darkMode ? "text-slate-400 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-100"
+                  )}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+            {filtered.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+                <MailOpen className="w-10 h-10 text-slate-300 mb-3" />
+                <p className={cn("font-medium text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>
+                  {filter !== 'all' ? `No ${filter} emails` : search ? 'No results' : 'No emails yet'}
+                </p>
+                {filter === 'all' && !search && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    Forward emails to your pipeline address to see them here
+                  </p>
+                )}
+              </div>
+            )}
+            <motion.div variants={listContainerVariants} initial="hidden" animate="visible">
+              {filtered.map(item => (
+                <motion.button
+                  key={item.id}
+                  variants={listItemVariants}
+                  onClick={() => setSelectedId(item.id)}
+                  className={cn(
+                    "w-full text-left px-4 py-3 transition-colors group relative",
+                    selectedId === item.id
+                      ? darkMode ? "bg-indigo-900/40" : "bg-indigo-50"
+                      : darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50",
+                    !item.isRead && (darkMode ? "border-l-2 border-indigo-400" : "border-l-2 border-indigo-500")
+                  )}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {/* Avatar */}
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5"
+                      style={{ backgroundColor: item.avatarColor || '#6366f1' }}
+                    >
+                      {getInitials(item.fromName || item.from)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1 mb-0.5">
+                        <span className={cn(
+                          "text-xs truncate",
+                          !item.isRead ? (darkMode ? "font-bold text-white" : "font-bold text-slate-900") : (darkMode ? "text-slate-300" : "text-slate-700")
+                        )}>
+                          {item.fromName || item.from}
+                        </span>
+                        <span className="text-[10px] text-slate-400 shrink-0">{formatEmailDate(item.receivedAt)}</span>
+                      </div>
+                      <p className={cn(
+                        "text-xs truncate mb-0.5",
+                        !item.isRead ? (darkMode ? "font-semibold text-slate-200" : "font-semibold text-slate-800") : (darkMode ? "text-slate-400" : "text-slate-600")
+                      )}>
+                        {item.subject}
+                      </p>
+                      <p className="text-[11px] text-slate-400 truncate leading-tight">
+                        {item.bodyText.slice(0, 80).replace(/\n/g, ' ')}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        {item.attachments?.length > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-slate-400">
+                            <Paperclip className="w-2.5 h-2.5" />{item.attachments.length}
+                          </span>
+                        )}
+                        {item.assignedTo && (
+                          <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-medium max-w-[120px] truncate">
+                            <MailCheck className="w-2.5 h-2.5 shrink-0" />
+                            <span className="truncate">{item.assignedTo.name}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </motion.button>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+
+        {/* RIGHT — detail pane */}
+        {selected ? (
+          <div className={cn("flex-1 flex flex-col min-w-0", darkMode ? "bg-slate-800" : "bg-white")}>
+            {/* Detail header */}
+            <div className={cn(
+              "p-4 sm:p-5 border-b shrink-0",
+              darkMode ? "border-slate-700" : "border-slate-200"
+            )}>
+              {/* Back button (mobile/tablet) */}
+              <button
+                onClick={() => setSelectedId(null)}
+                className="lg:hidden flex items-center gap-1.5 text-xs text-indigo-600 font-medium mb-3 hover:text-indigo-700"
+              >
+                <ChevronLeft className="w-4 h-4" /> Back to inbox
+              </button>
+
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className={cn("text-base sm:text-lg font-bold leading-snug", darkMode ? "text-white" : "text-slate-900")}>
+                    {selected.subject}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    {/* Sender avatar + name */}
+                    <div className="flex items-center gap-1.5">
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                        style={{ backgroundColor: selected.avatarColor || '#6366f1' }}
+                      >
+                        {getInitials(selected.fromName || selected.from)}
+                      </div>
+                      <span className={cn("text-sm font-medium", darkMode ? "text-slate-200" : "text-slate-800")}>
+                        {selected.fromName || selected.from}
+                      </span>
+                      <span className={cn("text-xs", darkMode ? "text-slate-400" : "text-slate-500")}>
+                        &lt;{selected.from}&gt;
+                      </span>
+                    </div>
+                    <span className={cn("text-xs", darkMode ? "text-slate-500" : "text-slate-400")}>
+                      {format(parseISO(selected.receivedAt), "MMM d, yyyy 'at' h:mm a")}
+                    </span>
+                  </div>
+                  {selected.assignedTo && (
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <span className={cn("text-xs", darkMode ? "text-slate-400" : "text-slate-500")}>Assigned to:</span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
+                        <MailCheck className="w-3 h-3" />
+                        {selected.assignedTo.name}
+                        <span className="text-emerald-500">({selected.assignedTo.type})</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => onMarkRead(selected.id, !selected.isRead)}
+                    title={selected.isRead ? 'Mark unread' : 'Mark read'}
+                    className={cn(
+                      "p-2 rounded-lg transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center",
+                      darkMode ? "text-slate-400 hover:bg-slate-700 hover:text-slate-200" : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    )}
+                  >
+                    {selected.isRead ? <MailOpen className="w-4 h-4" /> : <MailCheck className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={() => setAssignTarget(selected)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[36px]",
+                      selected.assignedTo
+                        ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        : "bg-indigo-600 text-white hover:bg-indigo-700"
+                    )}
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                    {selected.assignedTo ? 'Reassign' : 'Assign'}
+                  </button>
+                  <button
+                    onClick={() => { haptic([40, 20, 60]); onDelete(selected.id); setSelectedId(null); }}
+                    title="Delete"
+                    className={cn(
+                      "p-2 rounded-lg transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center",
+                      darkMode ? "text-slate-400 hover:bg-red-900/30 hover:text-red-400" : "text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    )}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Attachments bar (if any) */}
+            {selected.attachments?.length > 0 && (
+              <div className={cn("px-5 py-3 border-b flex items-center gap-2 flex-wrap", darkMode ? "border-slate-700 bg-slate-900/30" : "border-slate-100 bg-slate-50")}>
+                <Paperclip className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className={cn("text-xs font-medium mr-1", darkMode ? "text-slate-400" : "text-slate-500")}>
+                  {selected.attachments.length} attachment{selected.attachments.length !== 1 ? 's' : ''}
+                </span>
+                {selected.attachments.map(att => (
+                  <a
+                    key={att.id}
+                    href={`data:${att.contentType};base64,${att.data}`}
+                    download={att.filename}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border",
+                      darkMode ? "bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                    )}
+                  >
+                    <File className="w-3 h-3 text-indigo-500 shrink-0" />
+                    <span className="max-w-[120px] truncate">{att.filename}</span>
+                    <span className="text-slate-400">({(att.size / 1024).toFixed(0)}KB)</span>
+                    <Download className="w-3 h-3 text-slate-400 shrink-0" />
+                  </a>
+                ))}
+              </div>
+            )}
+
+            {/* HTML/Text toggle */}
+            {selected.bodyHtml && (
+              <div className={cn("px-5 py-2 border-b flex items-center gap-2", darkMode ? "border-slate-700" : "border-slate-100")}>
+                <button
+                  onClick={() => setShowHtmlView(false)}
+                  className={cn("text-xs px-2 py-0.5 rounded transition-colors", !showHtmlView ? "bg-indigo-600 text-white" : darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700")}
+                >
+                  Plain text
+                </button>
+                <button
+                  onClick={() => setShowHtmlView(true)}
+                  className={cn("text-xs px-2 py-0.5 rounded transition-colors", showHtmlView ? "bg-indigo-600 text-white" : darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700")}
+                >
+                  Formatted
+                </button>
+              </div>
+            )}
+
+            {/* Email body */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {showHtmlView && selected.bodyHtml ? (
+                <div
+                  className={cn(
+                    "prose prose-sm max-w-none text-sm",
+                    darkMode ? "prose-invert text-slate-300" : "text-slate-700"
+                  )}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(selected.bodyHtml) }}
+                />
+              ) : (
+                <pre className={cn(
+                  "whitespace-pre-wrap font-sans text-sm leading-relaxed",
+                  darkMode ? "text-slate-300" : "text-slate-700"
+                )}>
+                  {selected.bodyText || '(No text body)'}
+                </pre>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* Empty state when nothing selected (desktop) */
+          <div className="hidden lg:flex flex-1 items-center justify-center flex-col gap-3">
+            <MailOpen className="w-12 h-12 text-slate-200" />
+            <p className="text-slate-400 font-medium text-sm">Select an email to read</p>
+          </div>
+        )}
+      </div>
+
+      {/* Assignment modal */}
+      {assignTarget && (
+        <AssignEmailModal
+          email={assignTarget}
+          transactions={transactions}
+          leads={leads}
+          onAssign={(target) => {
+            onAssign(assignTarget.id, target);
+            setAssignTarget(null);
+          }}
+          onClose={() => setAssignTarget(null)}
+          darkMode={darkMode}
+        />
+      )}
+    </div>
+  );
+};
+
 // --- Recently Deleted View ---
 
 const RecentlyDeletedView = ({
@@ -7277,19 +7946,21 @@ const MobileBottomNav = ({
   onNavigate,
   onNewDeal,
   darkMode,
+  inboxUnreadCount = 0,
 }: {
   currentView: string;
   selectedDealId: string | null;
   selectedLeadId: string | null;
-  onNavigate: (view: 'dashboard' | 'pipeline' | 'leads' | 'contacts') => void;
+  onNavigate: (view: 'dashboard' | 'pipeline' | 'leads' | 'contacts' | 'inbox') => void;
   onNewDeal: () => void;
   darkMode: boolean;
+  inboxUnreadCount?: number;
 }) => {
   const items = [
-    { view: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard' },
-    { view: 'pipeline' as const, icon: List, label: 'Pipeline' },
-    { view: 'leads' as const, icon: Users, label: 'Leads' },
-    { view: 'contacts' as const, icon: BookUser, label: 'Contacts' },
+    { view: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard', badge: 0 },
+    { view: 'pipeline' as const, icon: List, label: 'Pipeline', badge: 0 },
+    { view: 'leads' as const, icon: Users, label: 'Leads', badge: 0 },
+    { view: 'inbox' as const, icon: Inbox, label: 'Inbox', badge: inboxUnreadCount },
   ];
   const isActive = (view: string) =>
     currentView === view && !selectedDealId && !selectedLeadId;
@@ -7302,7 +7973,7 @@ const MobileBottomNav = ({
       )}
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      {items.map(({ view, icon: Icon, label }) => (
+      {items.map(({ view, icon: Icon, label, badge }) => (
         <button
           key={view}
           onClick={() => onNavigate(view)}
@@ -7313,7 +7984,14 @@ const MobileBottomNav = ({
               : darkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
           )}
         >
-          <Icon className="w-5 h-5" />
+          <span className="relative">
+            <Icon className="w-5 h-5" />
+            {badge > 0 && (
+              <span className="absolute -top-1 -right-1.5 bg-indigo-600 text-white text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5 leading-none">
+                {badge > 9 ? '9+' : badge}
+              </span>
+            )}
+          </span>
           <span className="text-[10px] font-medium leading-none">{label}</span>
         </button>
       ))}
@@ -7331,7 +8009,7 @@ const MobileBottomNav = ({
 };
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
@@ -7340,6 +8018,7 @@ export default function App() {
   const [standaloneContacts, setStandaloneContacts] = useState<StandaloneContact[]>([]);
   const [darkMode, setDarkMode] = useState(false);
   const [actionLog, setActionLog] = useState<ActionLogEntry[]>([]);
+  const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
 
   const logAction = (entry: Omit<ActionLogEntry, 'id' | 'timestamp'>) => {
     const newEntry: ActionLogEntry = {
@@ -7359,10 +8038,11 @@ export default function App() {
 
   const refreshData = useCallback(async () => {
     try {
-      const [transRes, leadsRes, actionRes] = await Promise.all([
+      const [transRes, leadsRes, actionRes, inboxRes] = await Promise.all([
         fetch('/api/transactions'),
         fetch('/api/leads'),
         fetch('/api/action-log'),
+        fetch('/api/inbox'),
       ]);
       if (transRes.ok) {
         const data = await transRes.json();
@@ -7375,6 +8055,10 @@ export default function App() {
       if (actionRes.ok) {
         const data = await actionRes.json();
         if (data.length > 0) setActionLog(data);
+      }
+      if (inboxRes.ok) {
+        const data = await inboxRes.json();
+        setInboxItems(data);
       }
     } catch (e) {
       console.log('Could not load data from API:', e);
@@ -7790,7 +8474,81 @@ export default function App() {
     fetch(`/api/action-log/${entry.id}`, { method: 'DELETE' }).catch(console.error);
   };
 
-  const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions', icon: any, label: string }) => (
+  // --- Inbox handlers ---
+  const handleMarkInboxRead = (id: string, isRead: boolean) => {
+    setInboxItems(prev => prev.map(i => i.id === id ? { ...i, isRead } : i));
+    fetch(`/api/inbox/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isRead }),
+    }).catch(console.error);
+  };
+
+  const handleDeleteInboxItem = (id: string) => {
+    setInboxItems(prev => prev.filter(i => i.id !== id));
+    fetch(`/api/inbox/${id}`, { method: 'DELETE' }).catch(console.error);
+  };
+
+  // Assign email to a transaction or lead — also pushes email as a document entry
+  const handleAssignEmail = (
+    emailId: string,
+    target: { type: 'transaction' | 'lead'; id: string; name: string }
+  ) => {
+    const email = inboxItems.find(i => i.id === emailId);
+    if (!email) return;
+
+    // Mark the inbox item as assigned + read
+    const updatedEmail = { ...email, isRead: true, assignedTo: target };
+    setInboxItems(prev => prev.map(i => i.id === emailId ? updatedEmail : i));
+    fetch(`/api/inbox/${emailId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isRead: true, assignedTo: target }),
+    }).catch(console.error);
+
+    // Build a document record for the email body
+    const emailDoc: TransactionDocument = {
+      id: `doc_email_${emailId}`,
+      name: `✉ ${email.subject}`,
+      type: 'email',
+      size: email.bodyText.length,
+      dateUploaded: email.receivedAt,
+      sourceEmailId: emailId,
+      emailBodyText: email.bodyText,
+      emailBodyHtml: email.bodyHtml,
+    };
+
+    // Build document records for each attachment
+    const attachmentDocs: TransactionDocument[] = email.attachments.map(att => ({
+      id: `doc_att_${att.id}`,
+      name: att.filename,
+      type: att.contentType,
+      size: att.size,
+      dateUploaded: email.receivedAt,
+      url: `data:${att.contentType};base64,${att.data}`,
+      sourceEmailId: emailId,
+    }));
+
+    const allNewDocs = [emailDoc, ...attachmentDocs];
+
+    if (target.type === 'transaction') {
+      const tx = transactions.find(t => t.id === target.id);
+      if (!tx) return;
+      const updated = { ...tx, documents: [...(tx.documents || []), ...allNewDocs] };
+      handleUpdateTransaction(updated);
+    } else {
+      // For leads, store docs in a new optional `documents` field
+      const lead = leads.find(l => l.id === target.id);
+      if (!lead) return;
+      const updated = { ...lead, documents: [...((lead as any).documents || []), ...allNewDocs] };
+      handleUpdateLead(updated as Lead);
+    }
+  };
+
+  // Unread count for badge
+  const inboxUnreadCount = inboxItems.filter(i => !i.isRead && !i.isDeleted).length;
+
+  const NavItem = ({ view, icon: Icon, label, badge }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox', icon: any, label: string, badge?: number }) => (
     <button
       onClick={() => {
         setCurrentView(view);
@@ -7800,7 +8558,7 @@ export default function App() {
         setIsMobileMenuOpen(false);
       }}
       className={cn(
-        "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm",
+        "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium text-sm relative",
         currentView === view && !selectedDealId && !selectedLeadId
           ? "bg-indigo-50 text-indigo-700"
           : darkMode ? "text-slate-300 hover:bg-slate-700 hover:text-slate-100" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
@@ -7808,8 +8566,18 @@ export default function App() {
       )}
       title={isSidebarCollapsed ? label : undefined}
     >
-      <Icon className="w-5 h-5 shrink-0" />
-      {!isSidebarCollapsed && <span>{label}</span>}
+      <span className="relative shrink-0">
+        <Icon className="w-5 h-5" />
+        {isSidebarCollapsed && badge !== undefined && badge > 0 && (
+          <span className="absolute -top-1 -right-1 w-2 h-2 bg-indigo-600 rounded-full" />
+        )}
+      </span>
+      {!isSidebarCollapsed && <span className="flex-1 text-left">{label}</span>}
+      {!isSidebarCollapsed && badge !== undefined && badge > 0 && (
+        <span className="bg-indigo-600 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
     </button>
   );
 
@@ -7849,6 +8617,7 @@ export default function App() {
             <NavItem view="dashboard" icon={LayoutDashboard} label="Executive Dashboard" />
             <NavItem view="pipeline" icon={List} label="Pipeline Manager" />
             <NavItem view="leads" icon={Users} label="Leads Tracker" />
+            <NavItem view="inbox" icon={Inbox} label="Email Inbox" badge={inboxUnreadCount || undefined} />
             <NavItem view="contacts" icon={BookUser} label="Contacts" />
             <NavItem view="import" icon={Upload} label="Data Import" />
           </div>
@@ -7945,6 +8714,8 @@ export default function App() {
                 onSelectLead={handleSelectLead}
                 onAddReminder={handleAddReminder}
                 onNavigate={setCurrentView}
+                onNavigateToInbox={() => setCurrentView('inbox')}
+                inboxItems={inboxItems}
                 darkMode={darkMode}
               />
             </motion.div>
@@ -8014,6 +8785,20 @@ export default function App() {
                 onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
                 onUndo={handleUndo}
+              />
+            </motion.div>
+          )}
+
+          {currentView === 'inbox' && !selectedDealId && (
+            <motion.div key="inbox" variants={pageVariants} initial="initial" animate="animate" exit="exit">
+              <InboxView
+                items={inboxItems}
+                transactions={activeTransactions}
+                leads={activeLeads}
+                onMarkRead={handleMarkInboxRead}
+                onDelete={handleDeleteInboxItem}
+                onAssign={handleAssignEmail}
+                darkMode={darkMode}
               />
             </motion.div>
           )}
@@ -8122,6 +8907,7 @@ export default function App() {
           setIsMobileMenuOpen(false);
         }}
         darkMode={darkMode}
+        inboxUnreadCount={inboxUnreadCount}
       />
     </div>
   );

@@ -16,6 +16,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+// Webhook secret for SendGrid inbound parse — set EMAIL_WEBHOOK_SECRET in .env.local
+const EMAIL_WEBHOOK_SECRET = process.env.EMAIL_WEBHOOK_SECRET || '';
+
 // Initialize SQLite
 let db: any = null;
 try {
@@ -36,6 +39,11 @@ try {
       id TEXT PRIMARY KEY,
       data TEXT NOT NULL,
       timestamp TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS inbox_items (
+      id         TEXT PRIMARY KEY,
+      data       TEXT NOT NULL,
+      received_at TEXT DEFAULT (datetime('now'))
     );
   `);
   console.log('SQLite initialized successfully');
@@ -199,7 +207,6 @@ app.post('/api/leads/batch-delete-permanent', (req: Request, res: Response) => {
 
 app.get('/api/action-log', (_req: Request, res: Response) => {
   if (!db) { res.json([]); return; }
-  // Return last 50 entries, newest first
   const rows = db.prepare('SELECT data FROM action_log ORDER BY timestamp DESC LIMIT 50').all() as { data: string }[];
   res.json(rows.map(r => JSON.parse(r.data)));
 });
@@ -221,6 +228,166 @@ app.delete('/api/action-log/:id', (req: Request, res: Response) => {
   if (!db) { res.json({ ok: true }); return; }
   db.prepare('DELETE FROM action_log WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// --- Email Inbox ---
+
+// Lazy-load multer only when needed (graceful degradation if not installed)
+function getMulter() {
+  try {
+    const multer = require('multer');
+    return multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+  } catch {
+    return null;
+  }
+}
+
+// Helper — extract display name and email from "Name <email@example.com>" or plain "email@example.com"
+function parseEmailAddress(raw: string): { name: string; email: string } {
+  if (!raw) return { name: '', email: '' };
+  const match = raw.match(/^(.+?)\s*<(.+?)>\s*$/);
+  if (match) {
+    return {
+      name: match[1].replace(/^["']|["']$/g, '').trim(),
+      email: match[2].trim(),
+    };
+  }
+  return { name: '', email: raw.trim() };
+}
+
+// Helper — generate initials avatar color from email string
+function emailToColor(email: string): string {
+  const colors = ['#6366f1','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6'];
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) hash = email.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// POST /api/email-inbox  ← SendGrid Inbound Parse webhook
+// SendGrid sends multipart/form-data with fields: from, to, subject, text, html,
+// headers, attachments (count), attachment-info, and file fields attachment1, attachment2…
+app.post('/api/email-inbox', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+
+  // Optional webhook secret check (set X-Webhook-Secret header in SendGrid settings)
+  if (EMAIL_WEBHOOK_SECRET) {
+    const provided = req.headers['x-webhook-secret'] || req.headers['x-sendgrid-webhook-secret'];
+    if (provided !== EMAIL_WEBHOOK_SECRET) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+  }
+
+  const upload = getMulter();
+  if (!upload) {
+    // multer not installed — attempt to parse as urlencoded fallback
+    express.urlencoded({ extended: true, limit: '10mb' })(req, res, () => {
+      processEmailPayload(req, res, []);
+    });
+    return;
+  }
+
+  upload.any()(req, res, (err: any) => {
+    if (err) {
+      console.error('Multer error:', err);
+      res.status(400).json({ error: 'Failed to parse multipart payload' });
+      return;
+    }
+    const files = (req as any).files as Express.Multer.File[] | undefined;
+    processEmailPayload(req, res, files || []);
+  });
+});
+
+function processEmailPayload(req: Request, res: Response, files: any[]) {
+  try {
+    const body = req.body as Record<string, string>;
+
+    const fromRaw  = body.from  ?? body.sender ?? '';
+    const toRaw    = body.to    ?? body.recipient ?? '';
+    const subject  = body.subject ?? '(no subject)';
+    const bodyText = body.text  ?? body.plain ?? '';
+    const bodyHtml = body.html  ?? '';
+
+    const { name: fromName, email: fromEmail } = parseEmailAddress(fromRaw);
+    const avatarColor = emailToColor(fromEmail);
+
+    // Build attachments array from multer files
+    const attachments = files
+      .filter(f => f.fieldname?.startsWith('attachment'))
+      .map(f => ({
+        id: Math.random().toString(36).substr(2, 9),
+        filename: f.originalname ?? 'attachment',
+        contentType: f.mimetype ?? 'application/octet-stream',
+        size: f.size ?? 0,
+        data: (f.buffer as Buffer)?.toString('base64') ?? '',
+      }));
+
+    const id = `email_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+
+    const item = {
+      id,
+      from: fromEmail,
+      fromName: fromName || fromEmail.split('@')[0],
+      fromRaw,
+      to: toRaw,
+      subject,
+      bodyText,
+      bodyHtml,
+      receivedAt: new Date().toISOString(),
+      isRead: false,
+      attachments,
+      avatarColor,
+      assignedTo: null,
+      isDeleted: false,
+    };
+
+    db.prepare('INSERT INTO inbox_items (id, data) VALUES (?, ?)').run(id, JSON.stringify(item));
+    console.log(`Email received: "${subject}" from ${fromEmail}`);
+    res.status(200).json({ ok: true, id });
+  } catch (err) {
+    console.error('Email processing error:', err);
+    res.status(500).json({ error: 'processing failed' });
+  }
+}
+
+// GET /api/inbox — fetch all non-deleted items newest first
+app.get('/api/inbox', (_req: Request, res: Response) => {
+  if (!db) { res.json([]); return; }
+  const rows = db.prepare(
+    "SELECT data FROM inbox_items ORDER BY received_at DESC LIMIT 500"
+  ).all() as { data: string }[];
+  const items = rows.map(r => JSON.parse(r.data)).filter((i: any) => !i.isDeleted);
+  res.json(items);
+});
+
+// PUT /api/inbox/:id — update (mark read, assign, etc.)
+app.put('/api/inbox/:id', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+  const row = db.prepare('SELECT data FROM inbox_items WHERE id = ?').get(req.params.id) as { data: string } | undefined;
+  if (!row) { res.status(404).json({ error: 'not found' }); return; }
+  const merged = { ...JSON.parse(row.data), ...req.body };
+  db.prepare('UPDATE inbox_items SET data = ? WHERE id = ?').run(JSON.stringify(merged), req.params.id);
+  res.json(merged);
+});
+
+// DELETE /api/inbox/:id — soft delete
+app.delete('/api/inbox/:id', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+  const row = db.prepare('SELECT data FROM inbox_items WHERE id = ?').get(req.params.id) as { data: string } | undefined;
+  if (!row) { res.status(404).json({ error: 'not found' }); return; }
+  const item = { ...JSON.parse(row.data), isDeleted: true, deletedAt: new Date().toISOString() };
+  db.prepare('UPDATE inbox_items SET data = ? WHERE id = ?').run(JSON.stringify(item), req.params.id);
+  res.json({ ok: true });
+});
+
+// GET /api/inbox/unread-count — lightweight badge endpoint
+app.get('/api/inbox/unread-count', (_req: Request, res: Response) => {
+  if (!db) { res.json({ count: 0 }); return; }
+  const rows = db.prepare("SELECT data FROM inbox_items WHERE json_extract(data,'$.isDeleted') != 1").all() as { data: string }[];
+  const count = rows.filter(r => {
+    try { return !JSON.parse(r.data).isRead; } catch { return false; }
+  }).length;
+  res.json({ count });
 });
 
 // Catch-all: serve React app in production
