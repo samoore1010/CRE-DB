@@ -32,6 +32,11 @@ try {
       data TEXT NOT NULL,
       updated_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS action_log (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      timestamp TEXT NOT NULL
+    );
   `);
   console.log('SQLite initialized successfully');
 } catch (e) {
@@ -187,6 +192,34 @@ app.post('/api/leads/batch-delete-permanent', (req: Request, res: Response) => {
     for (const id of ids) del.run(id);
   });
   deleteMany();
+  res.json({ ok: true });
+});
+
+// --- Action Log ---
+
+app.get('/api/action-log', (_req: Request, res: Response) => {
+  if (!db) { res.json([]); return; }
+  // Return last 50 entries, newest first
+  const rows = db.prepare('SELECT data FROM action_log ORDER BY timestamp DESC LIMIT 50').all() as { data: string }[];
+  res.json(rows.map(r => JSON.parse(r.data)));
+});
+
+app.post('/api/action-log', (req: Request, res: Response) => {
+  if (!db) { res.json(req.body); return; }
+  const entry = req.body;
+  db.prepare('INSERT OR REPLACE INTO action_log (id, data, timestamp) VALUES (?, ?, ?)').run(
+    entry.id,
+    JSON.stringify(entry),
+    entry.timestamp
+  );
+  // Prune entries older than 30 days to keep DB lean
+  db.prepare("DELETE FROM action_log WHERE timestamp < datetime('now', '-30 days')").run();
+  res.json(entry);
+});
+
+app.delete('/api/action-log/:id', (req: Request, res: Response) => {
+  if (!db) { res.json({ ok: true }); return; }
+  db.prepare('DELETE FROM action_log WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

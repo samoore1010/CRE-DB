@@ -7107,41 +7107,31 @@ export default function App() {
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
   const [standaloneContacts, setStandaloneContacts] = useState<StandaloneContact[]>([]);
   const [darkMode, setDarkMode] = useState(false);
-  const [actionLog, setActionLog] = useState<ActionLogEntry[]>(() => {
-    try {
-      const stored = localStorage.getItem('actionLog');
-      if (stored) {
-        const entries = JSON.parse(stored) as ActionLogEntry[];
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 10);
-        return entries.filter(e => new Date(e.timestamp) > cutoff);
-      }
-    } catch {}
-    return [];
-  });
+  const [actionLog, setActionLog] = useState<ActionLogEntry[]>([]);
 
   const logAction = (entry: Omit<ActionLogEntry, 'id' | 'timestamp'>) => {
-    setActionLog(prev => [{
+    const newEntry: ActionLogEntry = {
       ...entry,
       id: Math.random().toString(36).substr(2, 9),
       timestamp: new Date().toISOString(),
-    }, ...prev]);
+    };
+    setActionLog(prev => [newEntry, ...prev]);
+    // Persist to server (fire-and-forget); omit previousState to keep payload lean
+    const { previousState: _ps, ...toStore } = newEntry;
+    fetch('/api/action-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(toStore),
+    }).catch(console.error);
   };
-
-  useEffect(() => {
-    try {
-      // Omit previousState to keep localStorage size manageable
-      const toStore = actionLog.map(({ previousState: _ps, ...rest }) => rest);
-      localStorage.setItem('actionLog', JSON.stringify(toStore));
-    } catch {}
-  }, [actionLog]);
 
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const [transRes, leadsRes] = await Promise.all([
+        const [transRes, leadsRes, actionRes] = await Promise.all([
           fetch('/api/transactions'),
-          fetch('/api/leads')
+          fetch('/api/leads'),
+          fetch('/api/action-log'),
         ]);
         if (transRes.ok) {
           const data = await transRes.json();
@@ -7150,6 +7140,10 @@ export default function App() {
         if (leadsRes.ok) {
           const data = await leadsRes.json();
           if (data.length > 0) setLeads(data);
+        }
+        if (actionRes.ok) {
+          const data = await actionRes.json();
+          if (data.length > 0) setActionLog(data);
         }
       } catch (e) {
         console.log('Could not load data from API:', e);
@@ -7556,8 +7550,9 @@ export default function App() {
         fetch(`/api/leads/${prev.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(prev) }).catch(console.error);
       }
     }
-    // Remove the undone entry from the log
+    // Remove the undone entry from the log (locally + server)
     setActionLog(log => log.filter(e => e.id !== entry.id));
+    fetch(`/api/action-log/${entry.id}`, { method: 'DELETE' }).catch(console.error);
   };
 
   const NavItem = ({ view, icon: Icon, label }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions', icon: any, label: string }) => (
