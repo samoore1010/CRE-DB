@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   LayoutDashboard, 
   List, 
@@ -96,6 +97,104 @@ import {
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+// Haptic feedback — triggers device vibration on supported mobile browsers
+function haptic(pattern: number | number[] = 50) {
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    navigator.vibrate(pattern);
+  }
+}
+
+// Pull-to-refresh hook — detects downward swipe from top of page
+function usePullToRefresh(onRefresh: () => Promise<void> | void) {
+  const [isPulling, setIsPulling] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const startYRef = useRef(0);
+  const THRESHOLD = 72;
+
+  const stableRefresh = useCallback(onRefresh, [onRefresh]);
+
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+      if (window.scrollY === 0) startYRef.current = e.touches[0].clientY;
+    };
+    const handleTouchMove = (e: TouchEvent) => {
+      const delta = e.touches[0].clientY - startYRef.current;
+      if (delta > 0 && window.scrollY === 0) {
+        setPullDistance(Math.min(delta * 0.5, THRESHOLD + 20));
+        setIsPulling(delta > THRESHOLD);
+      }
+    };
+    let pulling = false;
+    const handleTouchMoveRef = (e: TouchEvent) => {
+      const delta = e.touches[0].clientY - startYRef.current;
+      if (delta > 0 && window.scrollY === 0) {
+        const dist = Math.min(delta * 0.5, THRESHOLD + 20);
+        setPullDistance(dist);
+        pulling = dist * 2 > THRESHOLD;
+        setIsPulling(pulling);
+      }
+    };
+    const handleTouchEnd = async () => {
+      if (pulling) {
+        setIsRefreshing(true);
+        haptic(30);
+        await stableRefresh();
+        setIsRefreshing(false);
+      }
+      setPullDistance(0);
+      setIsPulling(false);
+      pulling = false;
+    };
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    document.addEventListener('touchmove', handleTouchMoveRef, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd);
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchmove', handleTouchMoveRef);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [stableRefresh]);
+
+  return { isPulling, isRefreshing, pullDistance };
+}
+
+// --- Shared Animation Variants ---
+
+const pageVariants = {
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0, transition: { type: 'spring' as const, damping: 28, stiffness: 320 } },
+  exit: { opacity: 0, y: -8, transition: { duration: 0.12 } },
+};
+
+const drawerVariants = {
+  hidden: { x: '100%' },
+  visible: { x: 0, transition: { type: 'spring' as const, damping: 30, stiffness: 300 } },
+  exit: { x: '100%', transition: { type: 'spring' as const, damping: 36, stiffness: 380 } },
+};
+
+const backdropVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { duration: 0.15 } },
+  exit: { opacity: 0, transition: { duration: 0.15 } },
+};
+
+const modalVariants = {
+  hidden: { scale: 0.96, opacity: 0, y: 10 },
+  visible: { scale: 1, opacity: 1, y: 0, transition: { type: 'spring' as const, damping: 26, stiffness: 320 } },
+  exit: { scale: 0.96, opacity: 0, y: 8, transition: { duration: 0.12 } },
+};
+
+const listContainerVariants = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.04, delayChildren: 0.02 } },
+};
+
+const listItemVariants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, damping: 22, stiffness: 300 } },
+};
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat('en-US', {
@@ -2416,11 +2515,18 @@ const LeadsView = ({
             {pagedLeads.length === 0 && (
               <div className="p-8 text-center text-slate-500 text-sm">No leads found.</div>
             )}
+            <motion.div
+              variants={listContainerVariants}
+              initial="hidden"
+              animate="visible"
+              key={pagedLeads.map(l => l.id).join(',')}
+            >
             {pagedLeads.map((lead) => {
               const missingFields = getMissingLeadFields(lead);
               return (
-                <div
+                <motion.div
                   key={lead.id}
+                  variants={listItemVariants}
                   onClick={() => onSelectLead(lead.id)}
                   className={cn(
                     "p-4 hover:bg-slate-50 cursor-pointer transition-colors",
@@ -2450,9 +2556,10 @@ const LeadsView = ({
                     })()}
                     {lead.details && <span className="truncate max-w-[200px]">{lead.details}</span>}
                   </div>
-                </div>
+                </motion.div>
               );
             })}
+            </motion.div>
             {leadsTotalPages > 1 && (
               <div className="border-t border-slate-200 px-4 py-2">
                 <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
@@ -2603,13 +2710,15 @@ const LeadsView = ({
       )}
 
       {/* Quick Edit Drawer */}
-      {drawerLeads && onUpdateLead && (
-        <QuickEditLeadDrawer
-          leads={drawerLeads}
-          onSave={(updated) => updated.forEach(l => onUpdateLead(l))}
-          onClose={() => setDrawerLeads(null)}
-        />
-      )}
+      <AnimatePresence>
+        {drawerLeads && onUpdateLead && (
+          <QuickEditLeadDrawer
+            leads={drawerLeads}
+            onSave={(updated) => updated.forEach(l => onUpdateLead(l))}
+            onClose={() => setDrawerLeads(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -3183,7 +3292,13 @@ const QuickEditTransactionDrawer = ({
     return (
       <>
         <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
-        <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+        <motion.div
+          className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col"
+          variants={drawerVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+        >
           <div className="flex items-center justify-between p-5 border-b border-slate-200">
             <div>
               <h3 className="font-semibold text-slate-900 flex items-center gap-2">
@@ -3191,7 +3306,7 @@ const QuickEditTransactionDrawer = ({
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">Some deals already have values for these fields.</p>
             </div>
-            <button onClick={() => setShowOverrideConfirm(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+            <button onClick={() => setShowOverrideConfirm(false)} className="p-1.5 min-w-[44px] min-h-[44px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors flex items-center justify-center">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -3218,7 +3333,7 @@ const QuickEditTransactionDrawer = ({
               Confirm & Save
             </button>
           </div>
-        </div>
+        </motion.div>
       </>
     );
   }
@@ -3226,7 +3341,13 @@ const QuickEditTransactionDrawer = ({
   return (
     <>
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+      <motion.div
+        className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col"
+        variants={drawerVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+      >
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <div>
             <h3 className="font-semibold text-slate-900">
@@ -3236,7 +3357,7 @@ const QuickEditTransactionDrawer = ({
               {isBulk ? 'Values applied to all selected deals. Leave blank to skip.' : 'Edit fields below. Amber fields are currently missing.'}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+          <button onClick={onClose} className="p-1.5 min-w-[44px] min-h-[44px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors flex items-center justify-center">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -3351,14 +3472,14 @@ const QuickEditTransactionDrawer = ({
         </div>
 
         <div className="p-5 border-t border-slate-200 flex gap-3">
-          <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
+          <button onClick={onClose} className="flex-1 px-4 py-2 min-h-[44px] text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
             Cancel
           </button>
-          <button onClick={handleSaveClick} className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium">
+          <button onClick={handleSaveClick} className="flex-1 px-4 py-2 min-h-[44px] text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium">
             Save Changes
           </button>
         </div>
-      </div>
+      </motion.div>
     </>
   );
 };
@@ -3435,7 +3556,13 @@ const QuickEditLeadDrawer = ({
     return (
       <>
         <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
-        <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+        <motion.div
+          className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col"
+          variants={drawerVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+        >
           <div className="flex items-center justify-between p-5 border-b border-slate-200">
             <div>
               <h3 className="font-semibold text-slate-900 flex items-center gap-2">
@@ -3443,7 +3570,7 @@ const QuickEditLeadDrawer = ({
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">Some leads already have values for these fields.</p>
             </div>
-            <button onClick={() => setShowOverrideConfirm(false)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+            <button onClick={() => setShowOverrideConfirm(false)} className="p-1.5 min-w-[44px] min-h-[44px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors flex items-center justify-center">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -3466,11 +3593,11 @@ const QuickEditLeadDrawer = ({
             <button onClick={() => setShowOverrideConfirm(false)} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
               Go Back
             </button>
-            <button onClick={applySave} className="flex-1 px-4 py-2 text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors font-medium">
+            <button onClick={applySave} className="flex-1 px-4 py-2 min-h-[44px] text-sm bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors font-medium">
               Confirm & Save
             </button>
           </div>
-        </div>
+        </motion.div>
       </>
     );
   }
@@ -3478,7 +3605,13 @@ const QuickEditLeadDrawer = ({
   return (
     <>
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-200">
+      <motion.div
+        className="fixed right-0 top-0 h-full w-full max-w-sm bg-white shadow-2xl z-50 flex flex-col"
+        variants={drawerVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+      >
         <div className="flex items-center justify-between p-5 border-b border-slate-200">
           <div>
             <h3 className="font-semibold text-slate-900">
@@ -3488,7 +3621,7 @@ const QuickEditLeadDrawer = ({
               {isBulk ? 'Values applied to all selected leads. Leave blank to skip.' : 'Edit fields below. Amber fields are currently missing.'}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+          <button onClick={onClose} className="p-1.5 min-w-[44px] min-h-[44px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors flex items-center justify-center">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -3524,11 +3657,11 @@ const QuickEditLeadDrawer = ({
           <button onClick={onClose} className="flex-1 px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors">
             Cancel
           </button>
-          <button onClick={handleSaveClick} className="flex-1 px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium">
+          <button onClick={handleSaveClick} className="flex-1 px-4 py-2 min-h-[44px] text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium">
             Save Changes
           </button>
         </div>
-      </div>
+      </motion.div>
     </>
   );
 };
@@ -3996,12 +4129,19 @@ const PipelineView = ({
                 <StatusBadge stage={stage} />
                 <span className="text-[10px] font-bold text-slate-400">{stageDeals.length}</span>
               </div>
-              <div className="space-y-2">
+              <motion.div
+                className="space-y-2"
+                variants={listContainerVariants}
+                initial="hidden"
+                animate="visible"
+                key={stageDeals.map(d => d.id).join(',')}
+              >
                 {stageDeals.map(deal => {
                   const missingFields = getMissingTransactionFields(deal);
                   const grossComm = deal.price * (deal.grossCommissionPercent / 100);
                   return (
-                    <div
+                    <motion.div
+                    variants={listItemVariants}
                       key={deal.id}
                       draggable
                       onDragStart={() => handleDragStart(deal.id)}
@@ -4034,10 +4174,10 @@ const PipelineView = ({
                         {deal.seller?.name && <p className="text-[10px] text-slate-500 truncate">S: {deal.seller.name}</p>}
                         {deal.coeDate && <p className="text-[10px] text-slate-400">COE: {format(parseISO(deal.coeDate), 'MM/dd/yy')}</p>}
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })}
-              </div>
+              </motion.div>
             </div>
           );
         })}
@@ -4070,13 +4210,15 @@ const PipelineView = ({
     )}
 
     {/* Quick Edit Drawer */}
-    {drawerTransactions && onUpdateTransaction && (
-      <QuickEditTransactionDrawer
-        transactions={drawerTransactions}
-        onSave={(updated) => updated.forEach(t => onUpdateTransaction(t))}
-        onClose={() => setDrawerTransactions(null)}
-      />
-    )}
+    <AnimatePresence>
+      {drawerTransactions && onUpdateTransaction && (
+        <QuickEditTransactionDrawer
+          transactions={drawerTransactions}
+          onSave={(updated) => updated.forEach(t => onUpdateTransaction(t))}
+          onClose={() => setDrawerTransactions(null)}
+        />
+      )}
+    </AnimatePresence>
     </div>
   );
 };
@@ -6242,8 +6384,6 @@ const NewTransactionModal = ({
     else setSellerSuggestions([]);
   };
 
-  if (!isOpen) return null;
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newTransaction = {
@@ -6322,8 +6462,22 @@ const NewTransactionModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white w-full max-h-screen overflow-hidden flex flex-col sm:rounded-xl sm:shadow-2xl sm:max-w-6xl sm:max-h-[90vh] sm:m-4">
+    <AnimatePresence>
+      {isOpen && (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm sm:p-4"
+      variants={backdropVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+    >
+      <motion.div
+        className="bg-white w-full max-h-screen overflow-hidden flex flex-col sm:rounded-xl sm:shadow-2xl sm:max-w-6xl sm:max-h-[90vh] sm:m-4"
+        variants={modalVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+      >
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white z-10 shrink-0">
           <h2 className="text-xl font-bold text-slate-900">Add New Transaction</h2>
           <div className="flex items-center gap-2">
@@ -6739,11 +6893,13 @@ const NewTransactionModal = ({
         </div>
 
         <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white z-10">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
-            <button type="submit" form="new-deal-form" className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 shadow-sm transition-colors">Create Deal</button>
+            <button type="button" onClick={onClose} className="px-4 py-2 min-h-[44px] text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
+            <button type="submit" form="new-deal-form" className="px-4 py-2 min-h-[44px] bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 shadow-sm transition-colors">Create Deal</button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -6851,41 +7007,56 @@ const RecentlyDeletedView = ({
 
 // --- Confirm Dialog Component ---
 
-const ConfirmDialog = ({ 
-  isOpen, 
-  title, 
-  message, 
-  onConfirm, 
-  onCancel 
-}: { 
-  isOpen: boolean, 
-  title: string, 
-  message: string, 
-  onConfirm: () => void, 
-  onCancel: () => void 
+const ConfirmDialog = ({
+  isOpen,
+  title,
+  message,
+  onConfirm,
+  onCancel
+}: {
+  isOpen: boolean,
+  title: string,
+  message: string,
+  onConfirm: () => void,
+  onCancel: () => void
 }) => {
-  if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in zoom-in-95 duration-200 scale-100">
-        <h3 className="text-lg font-bold text-slate-900 mb-2">{title}</h3>
-        <p className="text-slate-600 mb-6">{message}</p>
-        <div className="flex justify-end gap-3">
-          <button 
-            onClick={onCancel} 
-            className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors"
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm"
+          variants={backdropVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+        >
+          <motion.div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full p-6"
+            variants={modalVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
           >
-            Cancel
-          </button>
-          <button 
-            onClick={onConfirm} 
-            className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 shadow-sm transition-colors"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-2">{title}</h3>
+            <p className="text-slate-600 mb-6">{message}</p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={onCancel}
+                className="px-4 py-2 min-h-[44px] text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onConfirm}
+                className="px-4 py-2 min-h-[44px] bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 shadow-sm transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
@@ -7098,6 +7269,67 @@ const RecentActionsView = ({
 
 // --- Main App Component ---
 
+// --- Mobile Bottom Navigation Bar ---
+const MobileBottomNav = ({
+  currentView,
+  selectedDealId,
+  selectedLeadId,
+  onNavigate,
+  onNewDeal,
+  darkMode,
+}: {
+  currentView: string;
+  selectedDealId: string | null;
+  selectedLeadId: string | null;
+  onNavigate: (view: 'dashboard' | 'pipeline' | 'leads' | 'contacts') => void;
+  onNewDeal: () => void;
+  darkMode: boolean;
+}) => {
+  const items = [
+    { view: 'dashboard' as const, icon: LayoutDashboard, label: 'Dashboard' },
+    { view: 'pipeline' as const, icon: List, label: 'Pipeline' },
+    { view: 'leads' as const, icon: Users, label: 'Leads' },
+    { view: 'contacts' as const, icon: BookUser, label: 'Contacts' },
+  ];
+  const isActive = (view: string) =>
+    currentView === view && !selectedDealId && !selectedLeadId;
+
+  return (
+    <div
+      className={cn(
+        'md:hidden fixed bottom-0 left-0 right-0 z-40 border-t flex items-stretch',
+        darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
+      )}
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
+      {items.map(({ view, icon: Icon, label }) => (
+        <button
+          key={view}
+          onClick={() => onNavigate(view)}
+          className={cn(
+            'flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] transition-colors',
+            isActive(view)
+              ? 'text-indigo-600'
+              : darkMode ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
+          )}
+        >
+          <Icon className="w-5 h-5" />
+          <span className="text-[10px] font-medium leading-none">{label}</span>
+        </button>
+      ))}
+      <button
+        onClick={onNewDeal}
+        className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 min-h-[56px]"
+      >
+        <div className="w-9 h-9 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-md shadow-indigo-200">
+          <Plus className="w-5 h-5" />
+        </div>
+        <span className="text-[10px] font-medium leading-none text-indigo-600 mt-0.5">New Deal</span>
+      </button>
+    </div>
+  );
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
@@ -7125,32 +7357,34 @@ export default function App() {
     }).catch(console.error);
   };
 
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        const [transRes, leadsRes, actionRes] = await Promise.all([
-          fetch('/api/transactions'),
-          fetch('/api/leads'),
-          fetch('/api/action-log'),
-        ]);
-        if (transRes.ok) {
-          const data = await transRes.json();
-          if (data.length > 0) setTransactions(data);
-        }
-        if (leadsRes.ok) {
-          const data = await leadsRes.json();
-          if (data.length > 0) setLeads(data);
-        }
-        if (actionRes.ok) {
-          const data = await actionRes.json();
-          if (data.length > 0) setActionLog(data);
-        }
-      } catch (e) {
-        console.log('Could not load data from API:', e);
+  const refreshData = useCallback(async () => {
+    try {
+      const [transRes, leadsRes, actionRes] = await Promise.all([
+        fetch('/api/transactions'),
+        fetch('/api/leads'),
+        fetch('/api/action-log'),
+      ]);
+      if (transRes.ok) {
+        const data = await transRes.json();
+        if (data.length > 0) setTransactions(data);
       }
-    };
-    loadInitialData();
+      if (leadsRes.ok) {
+        const data = await leadsRes.json();
+        if (data.length > 0) setLeads(data);
+      }
+      if (actionRes.ok) {
+        const data = await actionRes.json();
+        if (data.length > 0) setActionLog(data);
+      }
+    } catch (e) {
+      console.log('Could not load data from API:', e);
+    }
   }, []);
+
+  useEffect(() => { refreshData(); }, []);
+
+  // Pull-to-refresh on mobile
+  const { isPulling, isRefreshing, pullDistance } = usePullToRefresh(refreshData);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
@@ -7472,6 +7706,7 @@ export default function App() {
   };
 
   const executeDelete = () => {
+    haptic([50, 30, 80]); // double-pulse for destructive action
     const { type, ids, target } = deleteConfirmation;
 
     if (target === 'transaction') {
@@ -7677,10 +7912,27 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 min-w-0 pt-16 md:pt-0">
-        <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="flex-1 min-w-0 pt-16 md:pt-0 pb-[env(safe-area-inset-bottom)]">
+        {/* Pull-to-refresh indicator */}
+        <div
+          className={cn(
+            "md:hidden flex items-center justify-center overflow-hidden transition-all duration-200",
+            darkMode ? "text-slate-400" : "text-slate-500"
+          )}
+          style={{ height: pullDistance > 0 ? `${pullDistance}px` : 0 }}
+        >
+          <div className={cn(
+            "flex items-center gap-2 text-xs font-medium",
+            (isPulling || isRefreshing) && "text-indigo-600"
+          )}>
+            <RotateCcw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
+            {isRefreshing ? 'Refreshing…' : isPulling ? 'Release to refresh' : 'Pull to refresh'}
+          </div>
+        </div>
+        <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8">
+          <AnimatePresence mode="wait">
           {currentView === 'dashboard' && !selectedDealId && (
-            <div className="animate-in fade-in duration-500">
+            <motion.div key="dashboard" variants={pageVariants} initial="initial" animate="animate" exit="exit">
               <div className="mb-8">
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Executive Dashboard</h1>
                 <p className="text-slate-500">Welcome back. Here's your pipeline overview.</p>
@@ -7695,11 +7947,11 @@ export default function App() {
                 onNavigate={setCurrentView}
                 darkMode={darkMode}
               />
-            </div>
+            </motion.div>
           )}
 
           {currentView === 'pipeline' && !selectedDealId && (
-            <div className="animate-in fade-in duration-500">
+            <motion.div key="pipeline" variants={pageVariants} initial="initial" animate="animate" exit="exit">
               <div className="mb-8">
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Pipeline Manager</h1>
                 <p className="text-slate-500">Manage your active and closed transactions.</p>
@@ -7711,11 +7963,11 @@ export default function App() {
                 onBatchDelete={handleBatchDelete}
                 onUpdateTransaction={handleUpdateTransaction}
               />
-            </div>
+            </motion.div>
           )}
 
           {currentView === 'leads' && !selectedLeadId && (
-            <div className="animate-in fade-in duration-500">
+            <motion.div key="leads" variants={pageVariants} initial="initial" animate="animate" exit="exit">
               <LeadsView
                 leads={activeLeads}
                 onSelectLead={handleSelectLead}
@@ -7723,11 +7975,11 @@ export default function App() {
                 onBatchDelete={handleBatchDeleteLeads}
                 onUpdateLead={handleUpdateLead}
               />
-            </div>
+            </motion.div>
           )}
 
           {currentView === 'contacts' && (
-            <div className="animate-in fade-in duration-500">
+            <motion.div key="contacts" variants={pageVariants} initial="initial" animate="animate" exit="exit">
               <ContactsView
                 contacts={allContacts}
                 selectedContactId={selectedContactId}
@@ -7739,35 +7991,35 @@ export default function App() {
                 onUpdateContact={handleUpdateStandaloneContact}
                 onMerge={handleMergeContacts}
               />
-            </div>
+            </motion.div>
           )}
 
           {currentView === 'import' && !selectedDealId && (
-            <div className="animate-in fade-in duration-500">
-               <DataManagementView 
+            <motion.div key="import" variants={pageVariants} initial="initial" animate="animate" exit="exit">
+               <DataManagementView
                  transactions={activeTransactions}
                  leads={leads}
                  onUpdateTransaction={handleUpdateTransaction}
                  onUpdateLead={handleUpdateLead}
-                 onImport={handleImportTransactions} 
+                 onImport={handleImportTransactions}
                  onImportLeads={handleImportLeads}
                />
-            </div>
+            </motion.div>
           )}
 
           {currentView === 'recent-actions' && !selectedDealId && (
-            <div className="animate-in fade-in duration-500">
+            <motion.div key="recent-actions" variants={pageVariants} initial="initial" animate="animate" exit="exit">
               <RecentActionsView
                 actions={actionLog}
                 onSelectDeal={handleSelectDeal}
                 onSelectLead={handleSelectLead}
                 onUndo={handleUndo}
               />
-            </div>
+            </motion.div>
           )}
 
           {currentView === 'deleted' && !selectedDealId && (
-            <div className="animate-in fade-in duration-500">
+            <motion.div key="deleted" variants={pageVariants} initial="initial" animate="animate" exit="exit">
               <div className="mb-8">
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Recently Deleted</h1>
                 <p className="text-slate-500">Restore or permanently delete items.</p>
@@ -7780,35 +8032,40 @@ export default function App() {
                 onRestoreLead={handleRestoreLead}
                 onPermanentDeleteLead={handlePermanentDeleteLead}
               />
-            </div>
+            </motion.div>
           )}
 
           {currentView === 'detail' && selectedTransaction && (
-            <TransactionDetailView
-              transaction={selectedTransaction}
-              onSave={handleUpdateTransaction}
-              onClose={() => { setSelectedDealId(null); setCurrentView('pipeline'); }}
-              contacts={allContacts}
-              onSelectContact={(contactId) => {
-                setSelectedContactId(contactId);
-                setSelectedDealId(null);
-                setCurrentView('contacts');
-              }}
-            />
+            <motion.div key={`detail-${selectedTransaction.id}`} variants={pageVariants} initial="initial" animate="animate" exit="exit">
+              <TransactionDetailView
+                transaction={selectedTransaction}
+                onSave={handleUpdateTransaction}
+                onClose={() => { setSelectedDealId(null); setCurrentView('pipeline'); }}
+                contacts={allContacts}
+                onSelectContact={(contactId) => {
+                  setSelectedContactId(contactId);
+                  setSelectedDealId(null);
+                  setCurrentView('contacts');
+                }}
+              />
+            </motion.div>
           )}
 
           {currentView === 'leads' && selectedLead && (
-            <LeadDetailView
-              lead={selectedLead}
-              onSave={(updatedLead) => { handleUpdateLead(updatedLead); }}
-              onClose={() => { setSelectedLeadId(null); }}
-              onSelectContact={(contactId) => {
-                setSelectedContactId(contactId);
-                setSelectedLeadId(null);
-                setCurrentView('contacts');
-              }}
-            />
+            <motion.div key={`lead-detail-${selectedLead.id}`} variants={pageVariants} initial="initial" animate="animate" exit="exit">
+              <LeadDetailView
+                lead={selectedLead}
+                onSave={(updatedLead) => { handleUpdateLead(updatedLead); }}
+                onClose={() => { setSelectedLeadId(null); }}
+                onSelectContact={(contactId) => {
+                  setSelectedContactId(contactId);
+                  setSelectedLeadId(null);
+                  setCurrentView('contacts');
+                }}
+              />
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       </main>
 
@@ -7846,6 +8103,25 @@ export default function App() {
         }
         onConfirm={executeDelete}
         onCancel={() => setDeleteConfirmation(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* Mobile Bottom Navigation */}
+      <MobileBottomNav
+        currentView={currentView}
+        selectedDealId={selectedDealId}
+        selectedLeadId={selectedLeadId}
+        onNavigate={(view) => {
+          setCurrentView(view);
+          setSelectedDealId(null);
+          setSelectedLeadId(null);
+          setSelectedContactId(null);
+          setIsMobileMenuOpen(false);
+        }}
+        onNewDeal={() => {
+          setIsNewDealModalOpen(true);
+          setIsMobileMenuOpen(false);
+        }}
+        darkMode={darkMode}
       />
     </div>
   );
