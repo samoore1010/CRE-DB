@@ -401,7 +401,10 @@ app.get('/api/inbox/unread-count', (_req: Request, res: Response) => {
 // Catch-all: serve React app in production
 if (IS_PROD) {
   app.get('*', (_req: Request, res: Response) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    const indexPath = path.join(__dirname, 'dist', 'index.html');
+    res.sendFile(indexPath, (err) => {
+      if (err) res.status(200).send('<html><body><p>App is starting up. Please refresh in a moment.</p></body></html>');
+    });
   });
 }
 
