@@ -36,12 +36,31 @@
 
 /* ── Backgrounds ─────────────────────────────────────────────────────────── */
 
-/* Tier 0  — deepest layer, main page/content area */
-.dark .bg-slate-50        { background-color: #0d1117; }
+/* Tier 0  — deepest layer, main page/content area.
+   Note: bg-slate-50 is also used for in-card sub-sections, so we keep it
+   slightly lighter than pure black so it reads as a "sunken" tier rather
+   than a black hole inside cards. */
+.dark .bg-slate-50        { background-color: #0d1421; }
+
+/* bg-slate-900 — used for accent hero cards and toast notifications.
+   On dark backgrounds these would otherwise vanish; elevate them to the
+   card surface level so they remain clearly visible.
+   (The root <div> which itself carries .dark + bg-slate-900 is NOT a
+    descendant of .dark, so it is unaffected by this rule.) */
+.dark .bg-slate-900       { background-color: #253654; }
+
+/* Tier 1  — sidebar / fixed nav panels (darker than cards, lighter than page) */
+/* This keeps the sidebar, mobile header, bottom nav and inbox panel clearly
+   distinct from the page background AND from card surfaces. */
+.dark .bg-slate-800       { background-color: #131a27; }
 
 /* Tier 2  — card / panel surface */
 .dark .bg-white           { background-color: #1c2840; }
-.dark .bg-slate-100       { background-color: #1c2840; }
+
+/* bg-slate-100 is used for progress-bar tracks, chat bubbles, stage badges,
+   and other small elevated surfaces inside bg-white cards.
+   Use an elevated tier so they appear ABOVE the card surface, not sunken. */
+.dark .bg-slate-100       { background-color: #243452; }
 
 /* Tier 3  — elevated / selected / subtle accent */
 .dark .bg-slate-200       { background-color: #243452; }
@@ -77,7 +96,9 @@
 
 /* ── Hover states ────────────────────────────────────────────────────────── */
 
-.dark .hover\:bg-slate-50:hover   { background-color: #1c2840; }
+/* Hover states need to be subtly different from the card surface (#1c2840)
+   so interactive rows/items show a visible hover highlight. */
+.dark .hover\:bg-slate-50:hover   { background-color: #1e2e46; }
 .dark .hover\:bg-slate-100:hover  { background-color: #243452; }
 .dark .hover\:bg-white:hover      { background-color: #243452; }
 

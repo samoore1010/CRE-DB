@@ -62,7 +62,10 @@ import {
   MailOpen,
   MailCheck,
   Reply,
-  ChevronDown
+  ChevronDown,
+  Settings,
+  Monitor,
+  Info
 } from 'lucide-react';
 import { 
   format, 
@@ -8285,6 +8288,92 @@ const RecentActionsView = ({
   );
 };
 
+const SettingsView = ({
+  darkMode,
+  onToggleDarkMode,
+}: {
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
+}) => (
+  <div className="space-y-6 max-w-2xl">
+    <div className="mb-8">
+      <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Settings</h1>
+      <p className="text-slate-500">Configure your application preferences.</p>
+    </div>
+
+    {/* Appearance */}
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+        <Monitor className="w-4 h-4 text-slate-500" />
+        <h2 className="font-semibold text-slate-800">Appearance</h2>
+      </div>
+      <div className="p-4">
+        <div className="flex items-center justify-between py-2">
+          <div>
+            <p className="font-medium text-slate-900">Dark Mode</p>
+            <p className="text-sm text-slate-500">Switch between light and dark theme</p>
+          </div>
+          <button
+            onClick={onToggleDarkMode}
+            className={cn(
+              "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
+              darkMode ? "bg-indigo-600" : "bg-slate-200"
+            )}
+            aria-label="Toggle dark mode"
+          >
+            <span
+              className={cn(
+                "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+                darkMode ? "translate-x-6" : "translate-x-1"
+              )}
+            />
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {/* Profile */}
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+        <Users className="w-4 h-4 text-slate-500" />
+        <h2 className="font-semibold text-slate-800">Profile</h2>
+      </div>
+      <div className="p-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg shrink-0">
+            TK
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900">Trey &amp; Kirk</p>
+            <p className="text-sm text-slate-500">LAO Team</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* About */}
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+        <Info className="w-4 h-4 text-slate-500" />
+        <h2 className="font-semibold text-slate-800">About</h2>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {[
+          ['Application', 'LAO Pipeline Pro'],
+          ['Version', '1.0.0'],
+          ['Built for', 'LAO Team'],
+          ['Platform', 'Commercial Real Estate'],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-slate-500">{label}</span>
+            <span className="text-sm font-medium text-slate-900">{value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
 // --- Main App Component ---
 
 // --- Mobile Bottom Navigation Bar ---
@@ -8358,7 +8447,7 @@ const MobileBottomNav = ({
 };
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox' | 'settings'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
@@ -8910,7 +8999,7 @@ export default function App() {
   // Unread count for badge
   const inboxUnreadCount = inboxItems.filter(i => !i.isRead && !i.isDeleted).length;
 
-  const NavItem = ({ view, icon: Icon, label, badge }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox', icon: any, label: string, badge?: number }) => (
+  const NavItem = ({ view, icon: Icon, label, badge }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox' | 'settings', icon: any, label: string, badge?: number }) => (
     <button
       onClick={() => {
         setCurrentView(view);
@@ -9004,33 +9093,23 @@ export default function App() {
           <div className="mt-auto pt-4 border-t border-slate-100 space-y-1">
              <NavItem view="recent-actions" icon={History} label="Recent Actions" />
              <NavItem view="deleted" icon={Trash2} label="Recently Deleted" />
+             <NavItem view="settings" icon={Settings} label="Settings" />
           </div>
         </div>
 
-        <div className="p-4 border-t border-slate-100">
+        {/* Sidebar bottom — add pb-20 on mobile so content clears the bottom nav bar */}
+        <div className={cn("p-4 border-t pb-20 md:pb-4", darkMode ? "border-slate-700" : "border-slate-100")}>
           <div className={cn("flex items-center gap-3 px-4 py-2", isSidebarCollapsed && "justify-center px-0")}>
             <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs shrink-0">
               TK
             </div>
             {!isSidebarCollapsed && (
               <div className="text-sm overflow-hidden">
-                <p className="font-medium text-slate-900 truncate">Trey & Kirk</p>
+                <p className="font-medium text-slate-900 truncate">Trey &amp; Kirk</p>
                 <p className="text-xs text-slate-500 truncate">LAO Team</p>
               </div>
             )}
           </div>
-          
-          {/* Dark Mode Toggle */}
-          <button
-            onClick={() => setDarkMode(d => !d)}
-            className="w-full mt-2 p-2 flex items-center justify-center gap-2 text-slate-400 hover:bg-slate-50 hover:text-slate-300 dark:hover:text-slate-200 rounded-lg transition-colors"
-            title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-          >
-            {darkMode
-              ? <Sun className="w-4 h-4" />
-              : <Moon className="w-4 h-4" />}
-            {!isSidebarCollapsed && <span className="text-xs font-medium">{darkMode ? 'Light Mode' : 'Dark Mode'}</span>}
-          </button>
 
           {/* Collapse Toggle (Desktop Only) */}
           <button
@@ -9211,6 +9290,15 @@ export default function App() {
                   setSelectedLeadId(null);
                   setCurrentView('contacts');
                 }}
+              />
+            </motion.div>
+          )}
+
+          {currentView === 'settings' && (
+            <motion.div key="settings" variants={pageVariants} initial="initial" animate="animate" exit="exit">
+              <SettingsView
+                darkMode={darkMode}
+                onToggleDarkMode={() => setDarkMode(d => !d)}
               />
             </motion.div>
           )}
