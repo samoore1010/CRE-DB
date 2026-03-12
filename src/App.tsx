@@ -2567,6 +2567,9 @@ const LeadsView = ({
   const [incompleteFilter, setIncompleteFilter] = useState(false);
   const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
   const [leadsPage, setLeadsPage] = useState(1);
+  // Dynamic rows: fit as many rows as the viewport can show without scrolling
+  // Mobile card ~76px tall; desktop row ~52px; subtract fixed page chrome
+  const leadsRowsPerPage = useRowsPerPage(76, 52, 390, 360);
 
   const toggleTypeFilter = (type: string) => {
     const newSet = new Set(selectedTypes);
@@ -2627,9 +2630,9 @@ const LeadsView = ({
 
   useEffect(() => { setLeadsPage(1); }, [search, selectedTypes, incompleteFilter, sortConfig]);
 
-  const leadsTotalPages = Math.max(1, Math.ceil(filteredLeads.length / ITEMS_PER_PAGE));
+  const leadsTotalPages = Math.max(1, Math.ceil(filteredLeads.length / leadsRowsPerPage));
   const leadsSafePage = Math.min(leadsPage, leadsTotalPages);
-  const pagedLeads = filteredLeads.slice((leadsSafePage - 1) * ITEMS_PER_PAGE, leadsSafePage * ITEMS_PER_PAGE);
+  const pagedLeads = filteredLeads.slice((leadsSafePage - 1) * leadsRowsPerPage, leadsSafePage * leadsRowsPerPage);
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds);
@@ -3906,6 +3909,9 @@ const PipelineView = ({
   const [incompleteFilter, setIncompleteFilter] = useState(false);
   const [drawerTransactions, setDrawerTransactions] = useState<Transaction[] | null>(null);
   const [pipelinePage, setPipelinePage] = useState(1);
+  // Dynamic rows: extra overhead for totals row (~50px) so it stays on-screen
+  // Mobile card ~82px; desktop row ~52px
+  const pipelineRowsPerPage = useRowsPerPage(82, 52, 440, 480);
 
   const toggleStageFilter = (stage: PipelineStage) => {
     const newSet = new Set(selectedStages);
@@ -3991,9 +3997,9 @@ const PipelineView = ({
 
   useEffect(() => { setPipelinePage(1); }, [search, selectedStages, filterYear, incompleteFilter, sortConfig]);
 
-  const pipelineTotalPages = Math.max(1, Math.ceil(filteredData.length / ITEMS_PER_PAGE));
+  const pipelineTotalPages = Math.max(1, Math.ceil(filteredData.length / pipelineRowsPerPage));
   const pipelineSafePage = Math.min(pipelinePage, pipelineTotalPages);
-  const pagedData = filteredData.slice((pipelineSafePage - 1) * ITEMS_PER_PAGE, pipelineSafePage * ITEMS_PER_PAGE);
+  const pagedData = filteredData.slice((pipelineSafePage - 1) * pipelineRowsPerPage, pipelineSafePage * pipelineRowsPerPage);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -7391,7 +7397,6 @@ const InboxView = ({
   const [filter, setFilter] = useState<'all' | 'unread' | 'assigned'>('all');
   const [search, setSearch] = useState('');
   const [assignTarget, setAssignTarget] = useState<InboxItem | null>(null);
-  const [showHtmlView, setShowHtmlView] = useState(false);
 
   const filtered = useMemo(() => {
     let list = items.filter(i => !i.isDeleted);
@@ -7688,27 +7693,9 @@ const InboxView = ({
               </div>
             )}
 
-            {/* HTML/Text toggle */}
-            {selected.bodyHtml && (
-              <div className={cn("px-5 py-2 border-b flex items-center gap-2", darkMode ? "border-slate-700" : "border-slate-100")}>
-                <button
-                  onClick={() => setShowHtmlView(false)}
-                  className={cn("text-xs px-2 py-0.5 rounded transition-colors", !showHtmlView ? "bg-indigo-600 text-white" : darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700")}
-                >
-                  Plain text
-                </button>
-                <button
-                  onClick={() => setShowHtmlView(true)}
-                  className={cn("text-xs px-2 py-0.5 rounded transition-colors", showHtmlView ? "bg-indigo-600 text-white" : darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-700")}
-                >
-                  Formatted
-                </button>
-              </div>
-            )}
-
-            {/* Email body */}
+            {/* Email body — always formatted (HTML if available, plain text fallback) */}
             <div className="flex-1 overflow-y-auto p-5">
-              {showHtmlView && selected.bodyHtml ? (
+              {selected.bodyHtml ? (
                 <div
                   className={cn(
                     "prose prose-sm max-w-none text-sm",
@@ -7935,10 +7922,48 @@ const ACTION_COLORS: Record<ActionType, string> = {
 const ITEMS_PER_PAGE = 20;
 const ACTION_RETENTION_DAYS = 10;
 
+/**
+ * Dynamically calculates how many table rows fit on screen without vertical
+ * scrolling, so paginating never requires the user to scroll back to the top.
+ *
+ * @param mobileRowHeight   Approximate rendered height (px) of one row on mobile (<640px)
+ * @param desktopRowHeight  Approximate rendered height (px) of one row on desktop
+ * @param mobileOverhead    Total vertical space (px) consumed by headers, toolbars,
+ *                          pagination, and nav on mobile
+ * @param desktopOverhead   Same for desktop
+ * @param min               Minimum rows to always show regardless of screen size
+ */
+function useRowsPerPage(
+  mobileRowHeight: number,
+  desktopRowHeight: number,
+  mobileOverhead: number,
+  desktopOverhead: number,
+  min = 5
+): number {
+  const calc = () => {
+    const isMobile = window.innerWidth < 640;
+    const rh = isMobile ? mobileRowHeight : desktopRowHeight;
+    const oh = isMobile ? mobileOverhead : desktopOverhead;
+    return Math.max(min, Math.floor((window.innerHeight - oh) / rh));
+  };
+  const [rows, setRows] = useState<number>(calc);
+  useEffect(() => {
+    const handler = () => setRows(calc());
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return rows;
+}
+
 const Pagination = ({
   page, totalPages, onPage
 }: { page: number; totalPages: number; onPage: (p: number) => void }) => {
   if (totalPages <= 1) return null;
+  const go = (p: number) => {
+    onPage(p);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+  };
   const pages: (number | '...')[] = [];
   if (totalPages <= 7) {
     for (let i = 1; i <= totalPages; i++) pages.push(i);
@@ -7953,15 +7978,15 @@ const Pagination = ({
     <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50">
       <p className="text-xs text-slate-500">Page {page} of {totalPages}</p>
       <div className="flex items-center gap-1">
-        <button onClick={() => onPage(page - 1)} disabled={page === 1} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+        <button onClick={() => go(page - 1)} disabled={page === 1} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
           <ChevronLeft className="w-4 h-4" />
         </button>
         {pages.map((p, i) =>
           p === '...'
             ? <span key={`ellipsis-${i}`} className="px-1.5 text-slate-400 text-sm">…</span>
-            : <button key={p} onClick={() => onPage(p as number)} className={cn("w-8 h-8 rounded text-sm font-medium transition-colors", page === p ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-200")}>{p}</button>
+            : <button key={p} onClick={() => go(p as number)} className={cn("w-8 h-8 rounded text-sm font-medium transition-colors", page === p ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-200")}>{p}</button>
         )}
-        <button onClick={() => onPage(page + 1)} disabled={page === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+        <button onClick={() => go(page + 1)} disabled={page === totalPages} className="p-1.5 rounded text-slate-500 hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
