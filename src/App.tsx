@@ -1358,6 +1358,8 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
   const [quickReminderTarget, setQuickReminderTarget] = useState<{ id: string, type: 'transaction' | 'lead' }>({ id: '', type: 'transaction' });
   const [quickReminderDate, setQuickReminderDate] = useState('');
   const [quickReminderDesc, setQuickReminderDesc] = useState('');
+  const [comboSearch, setComboSearch] = useState('');
+  const [comboOpen, setComboOpen] = useState(false);
   const [notesSearch, setNotesSearch] = useState('');
 
   // Dashboard Metrics & Derived Data
@@ -1643,7 +1645,20 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
     setShowQuickReminder(false);
     setQuickReminderDate('');
     setQuickReminderDesc('');
+    setQuickReminderTarget({ id: '', type: 'transaction' });
+    setComboSearch('');
+    setComboOpen(false);
   };
+
+  // Sorted options for Quick Add Reminder combobox
+  const sortedDealOptions = useMemo(() =>
+    transactions.filter(t => !t.isDeleted).sort((a, b) => a.dealName.localeCompare(b.dealName)),
+    [transactions]
+  );
+  const sortedLeadOptions = useMemo(() =>
+    leads.filter(l => !l.isDeleted).sort((a, b) => a.projectName.localeCompare(b.projectName)),
+    [leads]
+  );
 
   // Filtered recent activity (for notes search)
   const filteredActivity = useMemo(() => {
@@ -2140,32 +2155,62 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
 
     {/* Quick Add Reminder Modal */}
     {showQuickReminder && (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setShowQuickReminder(false)}>
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => { setShowQuickReminder(false); setComboSearch(''); setComboOpen(false); setQuickReminderTarget({ id: '', type: 'transaction' }); }}>
         <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
           <h3 className="text-lg font-bold text-slate-900 mb-4">Quick Add Reminder</h3>
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Deal or Lead</label>
-              <select
-                value={`${quickReminderTarget.type}:${quickReminderTarget.id}`}
-                onChange={e => {
-                  const [type, id] = e.target.value.split(':');
-                  setQuickReminderTarget({ type: type as 'transaction' | 'lead', id });
-                }}
-                className="w-full p-2 border border-slate-200 rounded-lg text-sm"
-              >
-                <option value="transaction:">Select...</option>
-                <optgroup label="Deals">
-                  {transactions.filter(t => !t.isDeleted).map(t => (
-                    <option key={t.id} value={`transaction:${t.id}`}>{t.dealName}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Leads">
-                  {leads.filter(l => !l.isDeleted).map(l => (
-                    <option key={l.id} value={`lead:${l.id}`}>{l.projectName}</option>
-                  ))}
-                </optgroup>
-              </select>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={comboSearch}
+                  onChange={e => { setComboSearch(e.target.value); setComboOpen(true); }}
+                  onFocus={() => setComboOpen(true)}
+                  onBlur={() => setTimeout(() => setComboOpen(false), 150)}
+                  placeholder="Search deals and leads..."
+                  className="w-full p-2 border border-slate-200 rounded-lg text-sm"
+                  autoComplete="off"
+                />
+                {comboOpen && (() => {
+                  const q = comboSearch.toLowerCase();
+                  const filtDeals = sortedDealOptions.filter(t => t.dealName.toLowerCase().includes(q));
+                  const filtLeads = sortedLeadOptions.filter(l => l.projectName.toLowerCase().includes(q));
+                  if (filtDeals.length === 0 && filtLeads.length === 0) return (
+                    <div className="absolute z-20 w-full bg-white border border-slate-200 rounded-lg shadow-lg mt-1 px-3 py-2 text-sm text-slate-400">No matches found</div>
+                  );
+                  return (
+                    <div className="absolute z-20 w-full bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-52 overflow-y-auto">
+                      {filtDeals.length > 0 && (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 sticky top-0">Deals</div>
+                          {filtDeals.map(t => (
+                            <button
+                              key={t.id}
+                              type="button"
+                              onMouseDown={() => { setQuickReminderTarget({ type: 'transaction', id: t.id }); setComboSearch(t.dealName); setComboOpen(false); }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                            >{t.dealName}</button>
+                          ))}
+                        </>
+                      )}
+                      {filtLeads.length > 0 && (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 sticky top-0">Leads</div>
+                          {filtLeads.map(l => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              onMouseDown={() => { setQuickReminderTarget({ type: 'lead', id: l.id }); setComboSearch(l.projectName); setComboOpen(false); }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                            >{l.projectName}</button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Date</label>
@@ -2177,7 +2222,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
             </div>
           </div>
           <div className="flex justify-end gap-3 mt-6">
-            <button onClick={() => setShowQuickReminder(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
+            <button onClick={() => { setShowQuickReminder(false); setComboSearch(''); setComboOpen(false); setQuickReminderTarget({ id: '', type: 'transaction' }); }} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
             <button onClick={handleQuickReminderSubmit} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors" disabled={!quickReminderTarget.id || !quickReminderDate || !quickReminderDesc.trim()}>Add Reminder</button>
           </div>
         </div>
