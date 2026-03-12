@@ -7465,6 +7465,8 @@ const InboxView = ({
   onMarkRead,
   onDelete,
   onAssign,
+  onSelectDeal,
+  onSelectLead,
   darkMode,
 }: {
   items: InboxItem[];
@@ -7473,6 +7475,8 @@ const InboxView = ({
   onMarkRead: (id: string, isRead: boolean) => void;
   onDelete: (id: string) => void;
   onAssign: (emailId: string, target: { type: 'transaction' | 'lead'; id: string; name: string }) => void;
+  onSelectDeal?: (id: string) => void;
+  onSelectLead?: (id: string) => void;
   darkMode?: boolean;
 }) => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -7739,15 +7743,26 @@ const InboxView = ({
                 </div>
               </div>
 
-              {/* Assigned-to badge */}
+              {/* Assigned-to badge — clickable, navigates to the linked record */}
               {selected.assignedTo && (
                 <div className="mt-2.5 flex items-center gap-1.5">
                   <span className={cn("text-xs shrink-0", darkMode ? "text-slate-400" : "text-slate-500")}>Assigned to:</span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
+                  <button
+                    onClick={() => {
+                      if (selected.assignedTo!.type === 'transaction' && onSelectDeal) {
+                        onSelectDeal(selected.assignedTo!.id);
+                      } else if (selected.assignedTo!.type === 'lead' && onSelectLead) {
+                        onSelectLead(selected.assignedTo!.id);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full hover:bg-emerald-200 hover:text-emerald-800 transition-colors cursor-pointer group"
+                    title={`Open ${selected.assignedTo.type}: ${selected.assignedTo.name}`}
+                  >
                     <MailCheck className="w-3 h-3" />
-                    {selected.assignedTo.name}
+                    <span className="group-hover:underline underline-offset-2">{selected.assignedTo.name}</span>
                     <span className="text-emerald-500">({selected.assignedTo.type})</span>
-                  </span>
+                    <ExternalLink className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100" />
+                  </button>
                 </div>
               )}
 
@@ -9145,6 +9160,8 @@ export default function App() {
                 onMarkRead={handleMarkInboxRead}
                 onDelete={handleDeleteInboxItem}
                 onAssign={handleAssignEmail}
+                onSelectDeal={handleSelectDeal}
+                onSelectLead={handleSelectLead}
                 darkMode={darkMode}
               />
             </motion.div>
