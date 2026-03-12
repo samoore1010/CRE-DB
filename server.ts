@@ -263,13 +263,15 @@ function emailToColor(email: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-// POST /api/email-inbox  ← SendGrid Inbound Parse webhook
-// SendGrid sends multipart/form-data with fields: from, to, subject, text, html,
-// headers, attachments (count), attachment-info, and file fields attachment1, attachment2…
+// POST /api/email-inbox
+// Accepts:
+//   - application/json        ← Google Apps Script bridge
+//   - multipart/form-data     ← SendGrid Inbound Parse
+//   - application/x-www-form-urlencoded ← fallback
 app.post('/api/email-inbox', (req: Request, res: Response) => {
   if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
 
-  // Optional webhook secret check (set X-Webhook-Secret header in SendGrid settings)
+  // Optional webhook secret check
   if (EMAIL_WEBHOOK_SECRET) {
     const provided = req.headers['x-webhook-secret'] || req.headers['x-sendgrid-webhook-secret'];
     if (provided !== EMAIL_WEBHOOK_SECRET) {
@@ -278,9 +280,15 @@ app.post('/api/email-inbox', (req: Request, res: Response) => {
     }
   }
 
+  // JSON payload (Google Apps Script sends application/json)
+  if (req.is('application/json')) {
+    processEmailPayload(req, res, []);
+    return;
+  }
+
+  // Multipart (SendGrid) or urlencoded fallback
   const upload = getMulter();
   if (!upload) {
-    // multer not installed — attempt to parse as urlencoded fallback
     express.urlencoded({ extended: true, limit: '10mb' })(req, res, () => {
       processEmailPayload(req, res, []);
     });
