@@ -1535,96 +1535,109 @@ const DataManagementView = ({
                 </div>
               </div>
 
-              {/* Import Format Instructions */}
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
+              {/* Import Format Instructions — spreadsheet preview */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-indigo-100 rounded-lg">
                     <FileText className="w-4 h-4 text-indigo-600" />
                   </div>
                   <h4 className="font-semibold text-slate-800 text-sm">CSV Format Guide</h4>
                 </div>
+                <p className="text-xs text-slate-500">
+                  Your spreadsheet must match the column layout below exactly. Row 1 is the header row — copy these column names as-is. Each row after is one {dataType === 'transactions' ? 'transaction' : 'lead'}.
+                </p>
 
-                {dataType === 'transactions' ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-slate-600">Your Transactions CSV must include the following columns in the header row. Columns are case-insensitive. Extra columns are ignored.</p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-white border border-slate-200">
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700 border-r border-slate-200">Column Name</th>
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700 border-r border-slate-200">Type</th>
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700">Description / Example</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {[
-                            ['dealName', 'Text', 'Name of the deal — e.g. "Barnes/IDM"'],
-                            ['stage', 'Text', 'LOI, Contract, Escrow, Closed, or Option'],
-                            ['price', 'Number', 'Total sale price — e.g. 5750000'],
-                            ['address', 'Text', 'Property address — e.g. "123 Main St, Phoenix, AZ"'],
-                            ['acreage', 'Number', 'Total acreage — e.g. 42.5'],
-                            ['zoning', 'Text', 'Zoning designation — e.g. "R-3"'],
-                            ['grossCommissionPercent', 'Number', 'Gross commission % (0–100) — e.g. 3'],
-                            ['laoCutPercent', 'Number', 'LAO team cut % — e.g. 20'],
-                            ['treySplitPercent', 'Number', "Trey's split % — e.g. 50"],
-                            ['kirkSplitPercent', 'Number', "Kirk's split % — e.g. 50"],
-                            ['earnestMoney', 'Number', 'Earnest money amount — e.g. 50000'],
-                            ['psaDate', 'Date', 'PSA date (YYYY-MM-DD) — e.g. 2026-01-15'],
-                            ['feasibilityDate', 'Date', 'Feasibility date (YYYY-MM-DD)'],
-                            ['coeDate', 'Date', 'Close of Escrow date (YYYY-MM-DD)'],
-                            ['buyerName', 'Text', "Buyer's full name"],
-                            ['sellerName', 'Text', "Seller's full name"],
-                            ['apn', 'Text', 'Assessor Parcel Number (optional)'],
-                            ['county', 'Text', 'County name (optional)'],
-                          ].map(([col, type, desc]) => (
-                            <tr key={col} className="bg-white even:bg-slate-50/50">
-                              <td className="px-3 py-2 font-mono text-indigo-700 border-r border-slate-100 whitespace-nowrap">{col}</td>
-                              <td className="px-3 py-2 text-slate-500 border-r border-slate-100 whitespace-nowrap">{type}</td>
-                              <td className="px-3 py-2 text-slate-600">{desc}</td>
+                {dataType === 'transactions' ? (() => {
+                  const cols = ['Year','Stage:','Seller(s):','Buyer:','Buyer:2','Price:','Base Commission','LAO Split','Trey Commission','Kirk Commission','Feasability End Date','Close of Escrow','PID'];
+                  const letters = ['A','B','C','D','E','F','G','H','I','J','K','L','M'];
+                  const rows = [
+                    ['2026','Contract','Smith Ranch','John Buyer','','$3,500,000','4.00%','20','50','50','6/15/2026','9/30/2026','AZPinal001'],
+                    ['2026','Escrow','Mesa Land Co.','Jane Davis','Bob Ellis','$1,200,000','3.00%','20','50','50','','8/15/2026',''],
+                    ['2026','LOI','Sunrise Farms','Carlos Reyes','','$875,000','5.00%','20','50','50','','',''],
+                  ];
+                  return (
+                    <div className="space-y-2">
+                      <div className="overflow-x-auto rounded-lg border border-slate-300 shadow-sm">
+                        <table className="text-[11px] border-collapse min-w-full">
+                          <thead>
+                            {/* Column letter row */}
+                            <tr>
+                              <td className="w-7 bg-emerald-100 border border-slate-300 px-1.5 py-1 text-center text-emerald-700 font-bold sticky left-0 z-10" />
+                              {letters.map(l => (
+                                <td key={l} className="bg-emerald-100 border border-slate-300 px-2 py-1 text-center text-emerald-700 font-bold whitespace-nowrap min-w-[80px]">{l}</td>
+                              ))}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      <p className="text-xs text-amber-800"><span className="font-semibold">Tip:</span> The first row must be the column headers. Each subsequent row is one transaction. Dates must be in <span className="font-mono font-semibold">YYYY-MM-DD</span> format.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <p className="text-xs text-slate-600">Your Leads CSV must include the following columns in the header row. Columns are case-insensitive. Extra columns are ignored.</p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs border-collapse">
-                        <thead>
-                          <tr className="bg-white border border-slate-200">
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700 border-r border-slate-200">Column Name</th>
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700 border-r border-slate-200">Type</th>
-                            <th className="px-3 py-2 text-left font-semibold text-slate-700">Description / Example</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {[
-                            ['type', 'Text', 'Lead type — e.g. "Buyer", "Seller", "Referral"'],
-                            ['projectName', 'Text', 'Project or property name — e.g. "Sunset Acres"'],
-                            ['contactName', 'Text', "Contact's full name — e.g. John Smith"],
-                            ['details', 'Text', 'Brief description of the lead or opportunity'],
-                            ['lastSpokeDate', 'Date', 'Last contact date (YYYY-MM-DD) — e.g. 2026-03-01'],
-                            ['summary', 'Text', 'Internal summary notes (optional)'],
-                          ].map(([col, type, desc]) => (
-                            <tr key={col} className="bg-white even:bg-slate-50/50">
-                              <td className="px-3 py-2 font-mono text-indigo-700 border-r border-slate-100 whitespace-nowrap">{col}</td>
-                              <td className="px-3 py-2 text-slate-500 border-r border-slate-100 whitespace-nowrap">{type}</td>
-                              <td className="px-3 py-2 text-slate-600">{desc}</td>
+                            {/* Header row (row 1) */}
+                            <tr>
+                              <td className="bg-emerald-100 border border-slate-300 px-1.5 py-1.5 text-center text-emerald-700 font-bold text-[10px] sticky left-0 z-10">1</td>
+                              {cols.map(c => (
+                                <td key={c} className="bg-slate-100 border border-slate-300 px-2 py-1.5 font-bold text-slate-800 whitespace-nowrap">{c}</td>
+                              ))}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {rows.map((r, ri) => (
+                              <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                <td className="bg-emerald-50 border border-slate-300 px-1.5 py-1.5 text-center text-emerald-700 font-semibold text-[10px] sticky left-0 z-10">{ri + 2}</td>
+                                {r.map((cell, ci) => (
+                                  <td key={ci} className="border border-slate-200 px-2 py-1.5 text-slate-700 whitespace-nowrap">{cell}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Column headers must match exactly (including colons and capitalization). Stage must be one of: <span className="font-semibold">LOI, Contract, Escrow, Closed, Option</span>. Dates can be in any standard format (e.g. 6/15/2026 or 2026-06-15).</p>
+                      </div>
                     </div>
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      <p className="text-xs text-amber-800"><span className="font-semibold">Tip:</span> The first row must be the column headers. Each subsequent row is one lead. Dates must be in <span className="font-mono font-semibold">YYYY-MM-DD</span> format.</p>
+                  );
+                })() : (() => {
+                  const cols = ['Lead Type','Project Name','Contact','Details','Last Spoke','Summary of Discussion'];
+                  const letters = ['A','B','C','D','E','F'];
+                  const rows = [
+                    ['True Lead','Greenfield Acres','Tom Wilson','40 acres irrigated farmland','3/1/2026','Referred by Kirk — motivated seller, wants to close by Q3'],
+                    ['Live Contract','Sunny Valley Farms','Sarah Chen','120 acres raw land','2/15/2026','In negotiations, waiting on final survey results'],
+                    ['Converted Lead (Escrow)','Riverside Parcel','Mike Torres','65 acres, mixed zoning','1/20/2026','In escrow — follow up on title clearance next week'],
+                  ];
+                  return (
+                    <div className="space-y-2">
+                      <div className="overflow-x-auto rounded-lg border border-slate-300 shadow-sm">
+                        <table className="text-[11px] border-collapse min-w-full">
+                          <thead>
+                            {/* Column letter row */}
+                            <tr>
+                              <td className="w-7 bg-emerald-100 border border-slate-300 px-1.5 py-1 text-center text-emerald-700 font-bold sticky left-0 z-10" />
+                              {letters.map(l => (
+                                <td key={l} className="bg-emerald-100 border border-slate-300 px-2 py-1 text-center text-emerald-700 font-bold whitespace-nowrap min-w-[110px]">{l}</td>
+                              ))}
+                            </tr>
+                            {/* Header row */}
+                            <tr>
+                              <td className="bg-emerald-100 border border-slate-300 px-1.5 py-1.5 text-center text-emerald-700 font-bold text-[10px] sticky left-0 z-10">1</td>
+                              {cols.map(c => (
+                                <td key={c} className="bg-slate-100 border border-slate-300 px-2 py-1.5 font-bold text-slate-800 whitespace-nowrap">{c}</td>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r, ri) => (
+                              <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                <td className="bg-emerald-50 border border-slate-300 px-1.5 py-1.5 text-center text-emerald-700 font-semibold text-[10px] sticky left-0 z-10">{ri + 2}</td>
+                                {r.map((cell, ci) => (
+                                  <td key={ci} className="border border-slate-200 px-2 py-1.5 text-slate-700 whitespace-nowrap max-w-[240px] truncate">{cell}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Lead Type must be one of: <span className="font-semibold">True Lead, Live Contract, Converted Lead (Escrow), Dead Deal</span>. Dates can be in any standard format (e.g. 3/1/2026).</p>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
           </div>
     </div>
