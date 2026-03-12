@@ -4323,11 +4323,11 @@ const PipelineView = ({
                   key={deal.id}
                   onClick={() => onSelectDeal(deal.id)}
                   className={cn(
-                    "p-4 hover:bg-slate-50 cursor-pointer transition-colors",
+                    "px-4 py-5 hover:bg-slate-50 cursor-pointer transition-colors",
                     missingFields.length > 0 && "border-l-2 border-l-amber-300"
                   )}
                 >
-                  <div className="flex items-start justify-between gap-2 mb-1">
+                  <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <DealHealthBadge health={getDealHealth(deal)} />
                       <span className="font-semibold text-slate-900 truncate">{deal.dealName}</span>
@@ -8101,7 +8101,7 @@ const Pagination = ({
     window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
   };
   const pages: (number | '...')[] = [];
-  if (totalPages <= 7) {
+  if (totalPages <= 4) {
     for (let i = 1; i <= totalPages; i++) pages.push(i);
   } else {
     pages.push(1);
