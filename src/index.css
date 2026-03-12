@@ -5,111 +5,128 @@
 @variant dark (&:where(.dark, .dark *));
 
 /* ════════════════════════════════════════════════════════════════════════════
-   DARK MODE — "Midnight Navy" Theme
+   DARK MODE — "Deep Navy" Theme
 
    Palette philosophy:
-   - Deep blue-navy base (not black) for warmth and depth
-   - Four clear elevation tiers so surfaces are always distinguishable
-   - Cool-tinted text that's easy to read at every weight
-   - Accent / status colors are brighter, not just lightened
+   - Near-black navy base for maximum depth and modern feel
+   - Four clear elevation tiers with generous luminance steps so widgets
+     never blend into their background
+   - Text colors are LIGHT on dark — muted labels are still clearly readable
+   - Accent / status colors remain vivid
 
    Tier  Surface            Hex       Usage
-   ────  ─────────────────  ────────  ─────────────────────────────────
-   0     Page background    #0c1220   Root / sidebar / page bg
-   1     Content bg         #111827   Main content area, section rows
-   2     Card surface       #1b2537   Cards, panels, inputs
-   3     Elevated surface   #22304a   Dropdowns, modals, hover states
+   ────  ─────────────────  ────────  ─────────────────────────────────────
+   0     Page background    #0d1117   Root page / content area background
+   1     Sidebar            #131a27   Sidebar / fixed nav panels
+   2     Card surface       #1a2235   Cards, panels, inputs (clearly elevated)
+   3     Elevated surface   #222e46   Dropdowns, modals, hover highlights
+
+   Text scale (lightest → darkest on dark backgrounds)
+   ────  ─────────────────────────────────────────────────────────────────
+   900 → #f0f4fa  primary text (near-white)
+   800 → #cddaea  strong secondary
+   700 → #a8bdd0  body copy
+   600 → #82a0b8  subdued
+   500 → #6183a0  muted labels — still clearly readable
+   400 → #8aafc8  light muted — visible placeholder/secondary info
+   300 → #4a6070  very muted / subtle dividers
 
    These rules live outside @layer so they cascade over Tailwind utilities.
 ════════════════════════════════════════════════════════════════════════════ */
 
 /* ── Backgrounds ─────────────────────────────────────────────────────────── */
 
-/* Tier 0  — deepest layer, page/sidebar */
-.dark .bg-slate-50        { background-color: #111827; }
-
-/* Tier 1  — main content sections */
-/* (no direct mapping needed; page bg is tier 0, cards are tier 2)          */
+/* Tier 0  — deepest layer, main page/content area */
+.dark .bg-slate-50        { background-color: #0d1117; }
 
 /* Tier 2  — card / panel surface */
-.dark .bg-white           { background-color: #1b2537; }
-.dark .bg-slate-100       { background-color: #1b2537; }
+.dark .bg-white           { background-color: #1c2840; }
+.dark .bg-slate-100       { background-color: #1c2840; }
 
 /* Tier 3  — elevated / selected / subtle accent */
-.dark .bg-slate-200       { background-color: #22304a; }
+.dark .bg-slate-200       { background-color: #243452; }
 
 /* Sticky / opaque elements (table headers, fixed bars) */
 .dark thead .bg-slate-50,
-.dark .sticky.bg-slate-50  { background-color: #111827; }
+.dark .sticky.bg-slate-50  { background-color: #0d1117; }
 .dark thead .bg-white,
-.dark .sticky.bg-white     { background-color: #1b2537; }
+.dark .sticky.bg-white     { background-color: #1c2840; }
 
 /* ── Text ────────────────────────────────────────────────────────────────── */
 
-.dark .text-slate-900     { color: #dce7f5; }   /* primary — cool off-white   */
-.dark .text-slate-800     { color: #b8ccdf; }   /* strong secondary           */
-.dark .text-slate-700     { color: #90a8c3; }   /* body copy                  */
-.dark .text-slate-600     { color: #6a8bac; }   /* subdued                    */
-.dark .text-slate-500     { color: #4e6e8a; }   /* muted labels               */
-.dark .text-slate-400     { color: #3a5470; }   /* very muted / de-emphasized */
-.dark .text-slate-300     { color: #2c4260; }   /* near-invisible dividers    */
+.dark .text-slate-900     { color: #f0f4fa; }   /* primary — near-white        */
+.dark .text-slate-800     { color: #cddaea; }   /* strong secondary            */
+.dark .text-slate-700     { color: #a8bdd0; }   /* body copy                   */
+.dark .text-slate-600     { color: #82a0b8; }   /* subdued                     */
+.dark .text-slate-500     { color: #6183a0; }   /* muted labels — readable     */
+.dark .text-slate-400     { color: #8aafc8; }   /* light muted — clearly visible */
+.dark .text-slate-300     { color: #4a6070; }   /* very muted / dividers       */
 
 /* ── Borders ─────────────────────────────────────────────────────────────── */
 
-.dark .border-slate-50    { border-color: #192335; }
-.dark .border-slate-100   { border-color: #1e2f47; }
-.dark .border-slate-200   { border-color: #243450; }
-.dark .border-slate-300   { border-color: #2d4062; }
+.dark .border-slate-50    { border-color: #182030; }
+.dark .border-slate-100   { border-color: #1f2d42; }
+.dark .border-slate-200   { border-color: #2a3d56; }
+.dark .border-slate-300   { border-color: #354e6a; }
 
 /* ── Dividers ────────────────────────────────────────────────────────────── */
 
-.dark .divide-slate-200 > * + * { border-color: #243450; }
-.dark .divide-slate-100 > * + * { border-color: #1e2f47; }
-.dark .divide-y > * + *         { border-color: #243450; }
+.dark .divide-slate-200 > * + * { border-color: #2a3d56; }
+.dark .divide-slate-100 > * + * { border-color: #1f2d42; }
+.dark .divide-y > * + *         { border-color: #2a3d56; }
 
 /* ── Hover states ────────────────────────────────────────────────────────── */
 
-.dark .hover\:bg-slate-50:hover   { background-color: #1b2537; }
-.dark .hover\:bg-slate-100:hover  { background-color: #22304a; }
-.dark .hover\:bg-white:hover      { background-color: #22304a; }
+.dark .hover\:bg-slate-50:hover   { background-color: #1c2840; }
+.dark .hover\:bg-slate-100:hover  { background-color: #243452; }
+.dark .hover\:bg-white:hover      { background-color: #243452; }
 
 /* ── Form elements ───────────────────────────────────────────────────────── */
 
 .dark input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .dark select,
 .dark textarea {
-  background-color: #1b2537;
-  border-color: #2d4062;
-  color: #dce7f5;
+  background-color: #14202e;
+  border-color: #2a3d56;
+  color: #f0f4fa;
 }
 .dark input::placeholder,
-.dark textarea::placeholder { color: #4e6e8a; }
+.dark textarea::placeholder { color: #6183a0; }
+
+/* ── Card elevation — box-shadow to reinforce separation ─────────────────── */
+/* Applied to any element that uses the card surface color                    */
+.dark .bg-white,
+.dark .rounded-2xl.border,
+.dark .rounded-xl.border,
+.dark .rounded-lg.border {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
 
 /* ── Indigo accent (nav active state, primary buttons) ───────────────────── */
 
-.dark .bg-indigo-50       { background-color: rgba(79, 70, 229, 0.15); }
-.dark .bg-indigo-100      { background-color: rgba(79, 70, 229, 0.20); }
+.dark .bg-indigo-50       { background-color: rgba(79, 70, 229, 0.18); }
+.dark .bg-indigo-100      { background-color: rgba(79, 70, 229, 0.25); }
 .dark .text-indigo-600    { color: #a5b4fc; }   /* indigo-300 — bright on dark */
 .dark .text-indigo-700    { color: #a5b4fc; }
 .dark .text-indigo-800    { color: #c7d2fe; }   /* indigo-200 */
 .dark .border-indigo-200  { border-color: rgba(99, 102, 241, 0.35); }
-.dark .border-indigo-400  { border-color: rgba(99, 102, 241, 0.55); }
-.dark .border-indigo-500  { border-color: rgba(99, 102, 241, 0.65); }
+.dark .border-indigo-400  { border-color: rgba(99, 102, 241, 0.60); }
+.dark .border-indigo-500  { border-color: rgba(99, 102, 241, 0.75); }
 
 /* ── Status / stage badge backgrounds ───────────────────────────────────── */
 
-.dark .bg-emerald-50      { background-color: rgba(6,  95, 70,  0.30); }
-.dark .bg-emerald-100     { background-color: rgba(6,  95, 70,  0.45); }
-.dark .bg-amber-50        { background-color: rgba(120, 53, 15, 0.30); }
-.dark .bg-amber-100       { background-color: rgba(120, 53, 15, 0.45); }
-.dark .bg-red-50          { background-color: rgba(127, 29, 29, 0.30); }
-.dark .bg-red-100         { background-color: rgba(127, 29, 29, 0.45); }
-.dark .bg-blue-50         { background-color: rgba(30,  58, 138, 0.30); }
-.dark .bg-blue-100        { background-color: rgba(30,  58, 138, 0.45); }
-.dark .bg-orange-50       { background-color: rgba(124, 45, 18,  0.30); }
-.dark .bg-orange-100      { background-color: rgba(124, 45, 18,  0.45); }
-.dark .bg-purple-50       { background-color: rgba(88,  28, 135, 0.30); }
-.dark .bg-purple-100      { background-color: rgba(88,  28, 135, 0.45); }
+.dark .bg-emerald-50      { background-color: rgba(6,  95, 70,  0.35); }
+.dark .bg-emerald-100     { background-color: rgba(6,  95, 70,  0.50); }
+.dark .bg-amber-50        { background-color: rgba(120, 53, 15, 0.35); }
+.dark .bg-amber-100       { background-color: rgba(120, 53, 15, 0.50); }
+.dark .bg-red-50          { background-color: rgba(127, 29, 29, 0.35); }
+.dark .bg-red-100         { background-color: rgba(127, 29, 29, 0.50); }
+.dark .bg-blue-50         { background-color: rgba(30,  58, 138, 0.35); }
+.dark .bg-blue-100        { background-color: rgba(30,  58, 138, 0.50); }
+.dark .bg-orange-50       { background-color: rgba(124, 45, 18,  0.35); }
+.dark .bg-orange-100      { background-color: rgba(124, 45, 18,  0.50); }
+.dark .bg-purple-50       { background-color: rgba(88,  28, 135, 0.35); }
+.dark .bg-purple-100      { background-color: rgba(88,  28, 135, 0.50); }
 
 /* ── Status / stage badge text ──────────────────────────────────────────── */
 
@@ -117,7 +134,7 @@
 .dark .text-emerald-700   { color: #34d399; }
 .dark .text-amber-500     { color: #fbbf24; }   /* amber-400   */
 .dark .text-amber-600     { color: #fbbf24; }
-.dark .text-amber-700     { color: #fbbf24; }
+.dark .text-amber-700     { color: #fcd34d; }   /* amber-300   */
 .dark .text-red-500       { color: #f87171; }   /* red-400     */
 .dark .text-red-600       { color: #f87171; }
 .dark .text-red-700       { color: #fca5a5; }   /* red-300     */
@@ -132,16 +149,16 @@
 
 /* ── Recharts ────────────────────────────────────────────────────────────── */
 
-.dark .recharts-text { fill: #6a8bac; }
-.dark .recharts-cartesian-grid line { stroke: #243450; }
+.dark .recharts-text { fill: #82a0b8; }
+.dark .recharts-cartesian-grid line { stroke: #2a3d56; }
 .dark .recharts-tooltip-wrapper .recharts-default-tooltip {
-  background-color: #1b2537 !important;
-  border-color: #2d4062 !important;
-  color: #dce7f5 !important;
+  background-color: #1c2840 !important;
+  border-color: #2a3d56 !important;
+  color: #f0f4fa !important;
 }
 
 /* ── Scrollbars (webkit) ─────────────────────────────────────────────────── */
 
-.dark ::-webkit-scrollbar-track { background: #0c1220; }
-.dark ::-webkit-scrollbar-thumb { background: #243450; border-radius: 4px; }
-.dark ::-webkit-scrollbar-thumb:hover { background: #2d4062; }
+.dark ::-webkit-scrollbar-track { background: #0d1117; }
+.dark ::-webkit-scrollbar-thumb { background: #2e4260; border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #3a5474; }
