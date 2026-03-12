@@ -2578,6 +2578,7 @@ const LeadsView = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
   const [incompleteFilter, setIncompleteFilter] = useState(false);
+  const [showLeadsFilterPanel, setShowLeadsFilterPanel] = useState(false);
   const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
   const [leadsPage, setLeadsPage] = useState(1);
   // Dynamic rows: fit as many rows as the viewport can show without scrolling
@@ -2708,38 +2709,106 @@ const LeadsView = ({
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters — collapsible panel */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Filter className="w-4 h-4 text-slate-400 mr-1 shrink-0" />
-        {(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const).map(type => (
-          <button
-            key={type}
-            onClick={() => toggleTypeFilter(type)}
-            className={cn(
-              "px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap border",
-              selectedTypes.has(type)
-                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+        {/* Filter toggle button */}
+        <button
+          onClick={() => setShowLeadsFilterPanel(p => !p)}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-all",
+            showLeadsFilterPanel
+              ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+          )}
+        >
+          <Filter className="w-3.5 h-3.5" />
+          Filters
+          {(() => {
+            const hiddenTypes = (['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const).filter(t => !selectedTypes.has(t)).length;
+            const incActive = incompleteFilter ? 1 : 0;
+            const total = hiddenTypes + incActive;
+            return total > 0 ? (
+              <span className={cn(
+                "ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none",
+                showLeadsFilterPanel ? "bg-white text-indigo-600" : "bg-indigo-600 text-white"
+              )}>{total}</span>
+            ) : null;
+          })()}
+          <ChevronDown className={cn("w-3 h-3 transition-transform", showLeadsFilterPanel && "rotate-180")} />
+        </button>
+
+        {/* Collapsed: active filter summary chips */}
+        {!showLeadsFilterPanel && (
+          <>
+            {incompleteFilter && (
+              <span className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-medium">
+                <AlertTriangle className="w-3 h-3" /> Incomplete only
+                <button onClick={() => setIncompleteFilter(false)} className="hover:text-amber-900 ml-0.5">×</button>
+              </span>
             )}
-          >
-            {type}
-          </button>
-        ))}
-        {incompleteCount > 0 && (
+            {(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const)
+              .filter(t => !selectedTypes.has(t))
+              .map(t => (
+                <span key={t} className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 border border-slate-200 rounded-full text-xs font-medium line-through">
+                  {t}
+                </span>
+              ))
+            }
+          </>
+        )}
+
+        {/* Incomplete button (shown in expanded state) */}
+        {incompleteCount > 0 && showLeadsFilterPanel && (
           <button
             onClick={() => setIncompleteFilter(!incompleteFilter)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+              "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all border",
               incompleteFilter
                 ? "bg-amber-500 text-white border-amber-500 shadow-sm"
                 : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
             )}
           >
-            <AlertTriangle className="w-3 h-3" />
-            {incompleteCount} incomplete
+            <AlertTriangle className="w-3.5 h-3.5" />
+            {incompleteCount} Incomplete
           </button>
         )}
       </div>
+
+      {/* Expandable filter panel */}
+      {showLeadsFilterPanel && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+          <div>
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Lead Type</p>
+            <div className="flex flex-wrap gap-2">
+              {(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const).map(type => (
+                <button
+                  key={type}
+                  onClick={() => toggleTypeFilter(type)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
+                    selectedTypes.has(type)
+                      ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-100"
+                  )}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <button
+              onClick={() => {
+                setSelectedTypes(new Set(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal']));
+                setIncompleteFilter(false);
+              }}
+              className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2 transition-colors"
+            >
+              Reset filters
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           {/* Mobile card list */}
@@ -7605,45 +7674,13 @@ const InboxView = ({
                 <ChevronLeft className="w-4 h-4" /> Back to inbox
               </button>
 
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className={cn("text-base sm:text-lg font-bold leading-snug", darkMode ? "text-white" : "text-slate-900")}>
-                    {selected.subject}
-                  </h2>
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    {/* Sender avatar + name */}
-                    <div className="flex items-center gap-1.5">
-                      <div
-                        className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
-                        style={{ backgroundColor: selected.avatarColor || '#6366f1' }}
-                      >
-                        {getInitials(selected.fromName || selected.from)}
-                      </div>
-                      <span className={cn("text-sm font-medium", darkMode ? "text-slate-200" : "text-slate-800")}>
-                        {selected.fromName || selected.from}
-                      </span>
-                      <span className={cn("text-xs", darkMode ? "text-slate-400" : "text-slate-500")}>
-                        &lt;{selected.from}&gt;
-                      </span>
-                    </div>
-                    <span className={cn("text-xs", darkMode ? "text-slate-500" : "text-slate-400")}>
-                      {format(parseISO(selected.receivedAt), "MMM d, yyyy 'at' h:mm a")}
-                    </span>
-                  </div>
-                  {selected.assignedTo && (
-                    <div className="mt-2 flex items-center gap-1.5">
-                      <span className={cn("text-xs", darkMode ? "text-slate-400" : "text-slate-500")}>Assigned to:</span>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
-                        <MailCheck className="w-3 h-3" />
-                        {selected.assignedTo.name}
-                        <span className="text-emerald-500">({selected.assignedTo.type})</span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Action buttons */}
-                <div className="flex items-center gap-1.5 shrink-0">
+              {/* Subject line — full width */}
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <h2 className={cn("text-base sm:text-lg font-bold leading-snug", darkMode ? "text-white" : "text-slate-900")}>
+                  {selected.subject}
+                </h2>
+                {/* Desktop-only action buttons (inline with subject) */}
+                <div className="hidden sm:flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => onMarkRead(selected.id, !selected.isRead)}
                     title={selected.isRead ? 'Mark unread' : 'Mark read'}
@@ -7677,6 +7714,84 @@ const InboxView = ({
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
+              </div>
+
+              {/* Sender info */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0"
+                  style={{ backgroundColor: selected.avatarColor || '#6366f1' }}
+                >
+                  {getInitials(selected.fromName || selected.from)}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-1.5 flex-wrap">
+                    <span className={cn("text-sm font-semibold leading-tight", darkMode ? "text-slate-200" : "text-slate-800")}>
+                      {selected.fromName || selected.from}
+                    </span>
+                    <span className={cn("text-xs truncate max-w-[200px]", darkMode ? "text-slate-400" : "text-slate-500")}>
+                      &lt;{selected.from}&gt;
+                    </span>
+                  </div>
+                  <span className={cn("text-xs", darkMode ? "text-slate-500" : "text-slate-400")}>
+                    {format(parseISO(selected.receivedAt), "MMM d, yyyy 'at' h:mm a")}
+                  </span>
+                </div>
+              </div>
+
+              {/* Assigned-to badge */}
+              {selected.assignedTo && (
+                <div className="mt-2.5 flex items-center gap-1.5">
+                  <span className={cn("text-xs shrink-0", darkMode ? "text-slate-400" : "text-slate-500")}>Assigned to:</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
+                    <MailCheck className="w-3 h-3" />
+                    {selected.assignedTo.name}
+                    <span className="text-emerald-500">({selected.assignedTo.type})</span>
+                  </span>
+                </div>
+              )}
+
+              {/* Mobile-only action toolbar — sits below sender info, clearly separated */}
+              <div className={cn(
+                "flex sm:hidden items-center gap-2 mt-4 pt-3 border-t",
+                darkMode ? "border-slate-700" : "border-slate-100"
+              )}>
+                <button
+                  onClick={() => setAssignTarget(selected)}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-colors",
+                    selected.assignedTo
+                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                      : "bg-indigo-600 text-white"
+                  )}
+                >
+                  <Tag className="w-3.5 h-3.5" />
+                  {selected.assignedTo ? 'Reassign' : 'Assign to Deal'}
+                </button>
+                <button
+                  onClick={() => onMarkRead(selected.id, !selected.isRead)}
+                  title={selected.isRead ? 'Mark unread' : 'Mark read'}
+                  className={cn(
+                    "flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold border transition-colors",
+                    darkMode
+                      ? "border-slate-600 text-slate-300 hover:bg-slate-700"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  {selected.isRead ? <MailOpen className="w-4 h-4" /> : <MailCheck className="w-4 h-4" />}
+                  <span>{selected.isRead ? 'Unread' : 'Read'}</span>
+                </button>
+                <button
+                  onClick={() => { haptic([40, 20, 60]); onDelete(selected.id); setSelectedId(null); }}
+                  className={cn(
+                    "flex items-center justify-center px-4 py-2.5 rounded-xl text-xs font-semibold border transition-colors",
+                    darkMode
+                      ? "border-slate-600 text-red-400 hover:bg-red-900/30"
+                      : "border-slate-200 text-red-500 hover:bg-red-50 hover:border-red-200"
+                  )}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
