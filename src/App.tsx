@@ -4149,50 +4149,40 @@ const PipelineView = ({
   const kanbanStages: PipelineStage[] = ['LOI', 'Contract', 'Escrow', 'Option', 'Closed'];
 
   return (
-    <div className="space-y-4">
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* Toolbar */}
-      <div className="p-4 border-b border-slate-200 flex flex-col gap-3 bg-slate-50">
-        {/* Row 1: Title + action buttons */}
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="font-semibold text-slate-900 flex items-center gap-2 shrink-0">
-            <List className="w-5 h-5 text-slate-500" />
-            <span className="hidden sm:inline">All Transactions</span>
-            <span className="sm:hidden">Transactions</span>
-          </h2>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden">
-              <button onClick={() => setViewMode('table')} className={cn("p-2 transition-colors", viewMode === 'table' ? "bg-indigo-50 text-indigo-600" : "text-slate-400 hover:bg-slate-50")} title="Table View">
-                <List className="w-4 h-4" />
-              </button>
-            </div>
-            <button
-              onClick={() => setViewMode(viewMode === 'kanban' ? 'table' : 'kanban')}
-              className={cn("flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors", viewMode === 'kanban' ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}
-              title="Update Stages (Kanban)"
-            >
-              <Columns3 className="w-4 h-4" />
-              <span className="hidden sm:inline">Update Stages</span>
-            </button>
-            <button onClick={exportCSV} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200" title="Export CSV">
-              <Download className="w-4 h-4" />
-            </button>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header row: title left, search + actions right */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Pipeline Manager</h1>
+          <p className="text-slate-500">Manage your active and closed transactions.</p>
+        </div>
+        <div className="flex gap-2 w-full sm:w-auto items-center">
+          <div className="relative flex-1 sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search deals..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
           </div>
+          <button
+            onClick={() => setViewMode(viewMode === 'kanban' ? 'table' : 'kanban')}
+            className={cn("flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors shrink-0", viewMode === 'kanban' ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}
+            title="Update Stages (Kanban)"
+          >
+            <Columns3 className="w-4 h-4" />
+            <span className="hidden sm:inline">Update Stages</span>
+          </button>
+          <button onClick={exportCSV} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 shrink-0" title="Export CSV">
+            <Download className="w-4 h-4" />
+          </button>
         </div>
-        {/* Row 2: Search (full-width on mobile) */}
-        <div className="relative w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search deals..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-          />
-        </div>
+      </div>
 
-        {/* Filters — toggle button row */}
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* Filters — toggle button row (page-level, same as LeadsView) */}
+      <div className="flex items-center gap-2 flex-wrap">
           {/* Filter toggle button */}
           <button
             onClick={() => setShowFilterPanel(p => !p)}
@@ -4315,9 +4305,9 @@ const PipelineView = ({
             </div>
           </div>
         )}
-      </div>
 
-      {/* Table View */}
+      {/* Table card — wraps only the table/list, matching LeadsView structure */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       {viewMode === 'table' && (
         <>
           {/* Mobile card list */}
@@ -4481,10 +4471,10 @@ const PipelineView = ({
       )}
       {filteredData.length === 0 && viewMode === 'table' && (
         <div className="p-12 text-center text-slate-500">
-            <p>No transactions found matching your filters.</p>
+          <p>No transactions found matching your filters.</p>
         </div>
       )}
-    </div>
+      </div>
 
     {/* Kanban View */}
     {viewMode === 'kanban' && (
@@ -9164,10 +9154,6 @@ export default function App() {
 
           {currentView === 'pipeline' && !selectedDealId && (
             <motion.div key="pipeline" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-              <div className="mb-8">
-                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Pipeline Manager</h1>
-                <p className="text-slate-500">Manage your active and closed transactions.</p>
-              </div>
               <PipelineView
                 transactions={activeTransactions}
                 onSelectDeal={handleSelectDeal}
