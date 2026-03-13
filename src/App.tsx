@@ -76,7 +76,8 @@ import {
   XCircle,
   PartyPopper,
   ChevronUp,
-  Sliders
+  Sliders,
+  HelpCircle
 } from 'lucide-react';
 import { 
   format, 
@@ -8724,6 +8725,335 @@ const OnboardingModal = ({ onComplete }: { onComplete: () => void }) => {
   );
 };
 
+// --- Page Tutorials ---
+
+type TutorialStep = { icon: React.ElementType; title: string; description: string };
+
+const PAGE_TUTORIALS: Record<string, TutorialStep[]> = {
+  dashboard: [
+    {
+      icon: LayoutDashboard,
+      title: 'Executive Dashboard',
+      description: 'This page gives you a high-level snapshot of your entire pipeline. KPI cards at the top show total active deals, pipeline value, projected commissions, and active leads.',
+    },
+    {
+      icon: DollarSign,
+      title: 'KPI Cards',
+      description: 'Each metric card is clickable — clicking "Pipeline" or "Leads" cards navigates you directly to that section. The trend arrow shows change from the previous period.',
+    },
+    {
+      icon: PieChart,
+      title: 'Charts',
+      description: 'The bar chart breaks down pipeline value by deal stage (LOI → Closed). The pie chart shows the commission split between your agents. Hover over segments for exact figures.',
+    },
+    {
+      icon: TrendingUp,
+      title: 'Recent Transactions',
+      description: 'The table at the bottom lists your most recent deals. Click any row to open the full transaction detail. The "View All" link takes you to the Pipeline Manager.',
+    },
+    {
+      icon: Bell,
+      title: 'Upcoming Deadlines',
+      description: 'The deadline widget flags deals with PSA, Feasibility, or Close of Escrow dates approaching within 30 days. Click a deal to jump to its detail page.',
+    },
+  ],
+  pipeline: [
+    {
+      icon: List,
+      title: 'Pipeline Manager',
+      description: 'Deals are organized by stage: LOI, Contract, Escrow, Closed, and Option. Each column shows the count and total value of deals in that stage.',
+    },
+    {
+      icon: Briefcase,
+      title: 'Deal Cards',
+      description: 'Each card shows the deal name, address, price, and key dates. Click a card to open the full transaction detail where you can edit every field.',
+    },
+    {
+      icon: Plus,
+      title: 'Adding Deals',
+      description: 'Use the "+ New Deal" button in the sidebar (or the blue button at the top of this view) to create a new transaction. Fill in the required fields and click Save.',
+    },
+    {
+      icon: ArrowUpDown,
+      title: 'Sorting & Filtering',
+      description: 'Use the search bar to filter by deal name or address. The sort dropdown lets you reorder by price, date, or stage. Filters persist while you stay on this page.',
+    },
+    {
+      icon: Columns3,
+      title: 'Kanban vs. List',
+      description: 'Toggle between Kanban board view (columns by stage) and a flat list view using the view-switcher buttons in the toolbar. Both views show the same data.',
+    },
+  ],
+  leads: [
+    {
+      icon: Users,
+      title: 'Leads Tracker',
+      description: 'Track prospective deals and contacts before they become active transactions. Each lead card shows the project name, contact, and how long since last contact.',
+    },
+    {
+      icon: Search,
+      title: 'Search & Filter',
+      description: 'Use the search bar to find leads by name, project, or contact. The filter chips at the top let you narrow by lead type (Buyer, Seller, Referral, etc.).',
+    },
+    {
+      icon: Bell,
+      title: 'Reminders',
+      description: 'Open a lead and use the "Add Reminder" button to schedule a follow-up. Reminders appear in the Upcoming Deadlines widget on the Dashboard.',
+    },
+    {
+      icon: ArrowUpRight,
+      title: 'Converting Leads',
+      description: 'When a lead converts to an active deal, use the "+ New Deal" button and reference the lead. You can then mark the lead as inactive or delete it.',
+    },
+    {
+      icon: MessageSquare,
+      title: 'Notes Log',
+      description: 'Each lead has a timestamped notes log. Click "+ Add Note" inside a lead detail to record calls, emails, or meeting summaries.',
+    },
+  ],
+  contacts: [
+    {
+      icon: BookUser,
+      title: 'Contacts',
+      description: 'Your contact book aggregates all parties from transactions and leads, plus standalone contacts you add manually.',
+    },
+    {
+      icon: Search,
+      title: 'Searching Contacts',
+      description: 'Use the search bar to find a contact by name, email, phone, or company. Results update in real time as you type.',
+    },
+    {
+      icon: Plus,
+      title: 'Adding Contacts',
+      description: 'Click "+ New Contact" to add a standalone contact not linked to a specific deal or lead. You can later associate them with transactions from the deal detail page.',
+    },
+    {
+      icon: Users,
+      title: 'Contact Detail',
+      description: 'Click any contact to see their full profile: phone, email, entity name, and all transactions/leads they appear in. Use the edit icon to update their info.',
+    },
+  ],
+  inbox: [
+    {
+      icon: Inbox,
+      title: 'Email Inbox',
+      description: 'A lightweight email inbox surfacing messages relevant to your deals. Unread message counts appear as a badge on the Inbox nav item.',
+    },
+    {
+      icon: MailOpen,
+      title: 'Reading Emails',
+      description: 'Click an email row to expand it and read the full message. Emails are marked as read automatically when opened.',
+    },
+    {
+      icon: Reply,
+      title: 'Replying',
+      description: 'Use the Reply button inside an open email to draft a response. The reply is sent through your configured email account.',
+    },
+    {
+      icon: Tag,
+      title: 'Linking to Deals',
+      description: 'You can tag an email to a specific transaction or lead using the link button. This associates the email with that deal for easy reference later.',
+    },
+  ],
+  import: [
+    {
+      icon: Upload,
+      title: 'Data Import / Export',
+      description: 'This page lets you bulk-import transactions or leads from CSV files, and export your current data for backup or reporting.',
+    },
+    {
+      icon: File,
+      title: 'Importing CSV',
+      description: 'Select "Transactions" or "Leads" using the toggle, then drag and drop your CSV file or click "Choose File". The app will preview the data before you confirm import.',
+    },
+    {
+      icon: Download,
+      title: 'Exporting Data',
+      description: 'Click "Export Transactions" or "Export Leads" to download your current data as a CSV file. Deleted records are excluded from exports.',
+    },
+    {
+      icon: AlertCircle,
+      title: 'CSV Format',
+      description: 'Use the "Download Template" button to get a pre-formatted CSV with the correct column headers. Importing with mismatched headers will show a validation error.',
+    },
+  ],
+  settings: [
+    {
+      icon: Settings,
+      title: 'Settings',
+      description: 'Customize LAO Pipeline Pro to match your team. Changes here affect labels and calculations throughout the app.',
+    },
+    {
+      icon: UserCog,
+      title: 'Agent Names',
+      description: 'Update the names for Agent 1 (Trey) and Agent 2 (Kirk) in the Agent Preferences section. These names appear in commission split displays across all views.',
+    },
+    {
+      icon: Moon,
+      title: 'Dark Mode',
+      description: 'Toggle dark mode on or off. Your preference is saved locally and persists across sessions.',
+    },
+    {
+      icon: ShieldCheck,
+      title: 'Security',
+      description: 'If a server-side password is configured via the APP_PASSWORD environment variable, the app will require it on first load. Contact your admin to change the password.',
+    },
+  ],
+  'deal-detail': [
+    {
+      icon: Briefcase,
+      title: 'Transaction Detail',
+      description: 'This page shows everything about a single deal. Use the tabs at the top — Overview, Financials, Parties, Timeline, Documents — to navigate between sections.',
+    },
+    {
+      icon: DollarSign,
+      title: 'Financials Tab',
+      description: 'The Financials tab shows the deal price, gross commission %, LAO cut %, and the calculated splits for each agent. Edit any field inline and click Save.',
+    },
+    {
+      icon: Users,
+      title: 'Parties Tab',
+      description: 'The Parties tab lists Buyer, Seller, and any other parties (brokers, attorneys, etc.). Click "+ Add Party" to add contacts, or the edit icon to update existing ones.',
+    },
+    {
+      icon: CalendarIcon,
+      title: 'Timeline Tab',
+      description: 'The Timeline tab shows PSA date, Feasibility date, Close of Escrow, and any custom dates you add. Custom dates can be flagged as reminders or general events.',
+    },
+    {
+      icon: FileText,
+      title: 'Documents Tab',
+      description: 'Upload and manage files for this deal in the Documents tab. Supported types include PDF, DOCX, and images. Click a document name to download it.',
+    },
+    {
+      icon: MessageSquare,
+      title: 'Notes Log',
+      description: 'The notes log at the bottom of the Overview tab keeps a timestamped record of all updates. Click "+ Add Note" to record calls, emails, or action items.',
+    },
+  ],
+  'lead-detail': [
+    {
+      icon: Users,
+      title: 'Lead Detail',
+      description: 'Full profile for a single lead. Edit the project name, contact, lead type, and summary at the top. All changes auto-save when you click the Save button.',
+    },
+    {
+      icon: Phone,
+      title: 'Contacts',
+      description: 'The Contacts section lists all people associated with this lead. Click "+ Add Contact" to link additional contacts, or the edit icon to update existing ones.',
+    },
+    {
+      icon: Bell,
+      title: 'Reminders',
+      description: 'Add follow-up reminders with a date and note. Reminders appear in the Dashboard deadline widget and will be highlighted when overdue.',
+    },
+    {
+      icon: MessageSquare,
+      title: 'Notes Log',
+      description: 'Keep a running log of every touchpoint — calls, emails, site visits. Each note is timestamped. Use the trash icon to remove a note if needed.',
+    },
+  ],
+  deleted: [
+    {
+      icon: Trash2,
+      title: 'Recently Deleted',
+      description: 'Soft-deleted transactions and leads land here instead of being permanently removed. Items are kept for 30 days before automatic deletion.',
+    },
+    {
+      icon: RotateCcw,
+      title: 'Restoring Items',
+      description: 'Click the "Restore" button next to any item to move it back to its original location (Pipeline or Leads). The item will reappear in all views immediately.',
+    },
+    {
+      icon: Trash2,
+      title: 'Permanent Delete',
+      description: 'To permanently remove an item, click the "Delete Forever" button. This action cannot be undone — all data for that record will be erased.',
+    },
+  ],
+  'recent-actions': [
+    {
+      icon: History,
+      title: 'Recent Actions',
+      description: 'A chronological audit log of every change made in the app — deal stage updates, edits, deletes, and imports. Useful for tracking team activity.',
+    },
+    {
+      icon: Search,
+      title: 'Filtering the Log',
+      description: 'Use the search bar to filter actions by deal name, user, or action type. The log shows the most recent 100 entries.',
+    },
+  ],
+};
+
+const TutorialModal = ({ pageKey, onComplete }: { pageKey: string; onComplete: () => void }) => {
+  const steps = PAGE_TUTORIALS[pageKey] ?? PAGE_TUTORIALS['dashboard'];
+  const [step, setStep] = React.useState(0);
+  const current = steps[step];
+  const Icon = current.icon;
+  const isLast = step === steps.length - 1;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="tutorial-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[150] flex items-center justify-center p-4"
+        onClick={onComplete}
+      >
+        <motion.div
+          key={`tutorial-step-${step}`}
+          initial={{ opacity: 0, scale: 0.96, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 26, stiffness: 320 } }}
+          exit={{ opacity: 0, scale: 0.96, y: -8, transition: { duration: 0.12 } }}
+          className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex flex-col items-center text-center gap-5">
+            <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center">
+              <Icon className="w-8 h-8 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">{current.title}</h2>
+              <p className="text-slate-500 mt-2 leading-relaxed">{current.description}</p>
+            </div>
+
+            {/* Step dots */}
+            <div className="flex gap-1.5">
+              {steps.map((_, i) => (
+                <div key={i} className={cn('h-1.5 rounded-full transition-all', i === step ? 'w-6 bg-indigo-600' : 'w-1.5 bg-slate-200')} />
+              ))}
+            </div>
+
+            <div className="flex gap-3 w-full">
+              {step > 0 && (
+                <button
+                  onClick={() => setStep(s => s - 1)}
+                  className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                onClick={() => isLast ? onComplete() : setStep(s => s + 1)}
+                className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              >
+                {isLast ? 'Done' : 'Next'}
+              </button>
+            </div>
+
+            {!isLast && (
+              <button onClick={onComplete} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                Close
+              </button>
+            )}
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
 // --- Error Boundary ---
 
 interface ErrorBoundaryState { hasError: boolean; error: Error | null }
@@ -8860,6 +9190,9 @@ function AppInner() {
 
   // --- Onboarding state ---
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // --- Tutorial state ---
+  const [showTutorial, setShowTutorial] = useState(false);
 
   // --- App state ---
   const [dataLoading, setDataLoading] = useState(true);
@@ -9920,6 +10253,31 @@ function AppInner() {
           setShowOnboarding(false);
           try { localStorage.setItem('onboarding_done', 'true'); } catch {}
         }} />
+      )}
+
+      {/* Page Tutorial */}
+      {showTutorial && (
+        <TutorialModal
+          pageKey={selectedDealId ? 'deal-detail' : selectedLeadId ? 'lead-detail' : currentView}
+          onComplete={() => setShowTutorial(false)}
+        />
+      )}
+
+      {/* Floating Help Button */}
+      {!showTutorial && !showOnboarding && (
+        <button
+          onClick={() => setShowTutorial(true)}
+          title="Page Help"
+          className={cn(
+            "fixed bottom-24 right-4 md:bottom-6 md:right-6 z-40 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all hover:scale-105 active:scale-95 text-sm font-medium",
+            darkMode
+              ? "bg-slate-700 text-slate-200 hover:bg-slate-600 border border-slate-600"
+              : "bg-white text-slate-600 hover:bg-slate-50 border border-slate-200"
+          )}
+        >
+          <HelpCircle className="w-4 h-4 text-indigo-500" />
+          <span className="hidden sm:inline">Help</span>
+        </button>
       )}
     </div>
   );
