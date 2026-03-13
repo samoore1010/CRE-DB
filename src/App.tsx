@@ -65,7 +65,18 @@ import {
   ChevronDown,
   Settings,
   Monitor,
-  Info
+  Info,
+  Lock,
+  LogOut,
+  LogIn,
+  UserCog,
+  ShieldCheck,
+  Loader2,
+  CheckCheck,
+  XCircle,
+  PartyPopper,
+  ChevronUp,
+  Sliders
 } from 'lucide-react';
 import { 
   format, 
@@ -455,6 +466,42 @@ interface Transaction {
   pid?: string;
   isDeleted?: boolean;
   deletedAt?: string;
+}
+
+// --- Toast & Preference Types ---
+
+interface ToastItem {
+  id: string;
+  type: 'success' | 'error' | 'info';
+  message: string;
+}
+
+interface AppPreferences {
+  teamName: string;
+  agent1Name: string;
+  agent2Name: string;
+  defaultTreySplit: number;
+  defaultKirkSplit: number;
+  defaultLaoCutPercent: number;
+  defaultGrossCommissionPercent: number;
+}
+
+const DEFAULT_PREFERENCES: AppPreferences = {
+  teamName: 'LAO Team',
+  agent1Name: 'Trey',
+  agent2Name: 'Kirk',
+  defaultTreySplit: 60,
+  defaultKirkSplit: 40,
+  defaultLaoCutPercent: 35,
+  defaultGrossCommissionPercent: 3,
+};
+
+function loadPrefsFromStorage(): AppPreferences {
+  try {
+    const raw = localStorage.getItem('lao_preferences');
+    if (raw) return { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) };
+  } catch {}
+  return { ...DEFAULT_PREFERENCES };
 }
 
 // --- Validation Helpers ---
@@ -8281,88 +8328,435 @@ const RecentActionsView = ({
 const SettingsView = ({
   darkMode,
   onToggleDarkMode,
+  preferences,
+  onSavePreferences,
+  onLogout,
+  authEnabled,
 }: {
   darkMode: boolean;
   onToggleDarkMode: () => void;
-}) => (
+  preferences: AppPreferences;
+  onSavePreferences: (updates: Partial<AppPreferences>) => void;
+  onLogout: () => void;
+  authEnabled: boolean;
+}) => {
+  const [editing, setEditing] = React.useState(false);
+  const [form, setForm] = React.useState<AppPreferences>(preferences);
+  const [saved, setSaved] = React.useState(false);
+
+  React.useEffect(() => { setForm(preferences); }, [preferences]);
+
+  const handleSave = () => {
+    onSavePreferences(form);
+    setEditing(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const initials = `${preferences.agent1Name.charAt(0)}${preferences.agent2Name.charAt(0)}`.toUpperCase();
+
+  return (
   <div className="space-y-6 max-w-2xl">
     <div className="mb-8">
-      <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Settings</h1>
-      <p className="text-slate-500">Configure your application preferences.</p>
+      <h1 className={cn("text-xl sm:text-2xl font-bold", darkMode ? "text-slate-100" : "text-slate-900")}>Settings</h1>
+      <p className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>Configure your application preferences.</p>
     </div>
 
     {/* Appearance */}
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+    <div className={cn("rounded-xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+      <div className={cn("p-4 border-b flex items-center gap-2", darkMode ? "border-slate-700 bg-slate-700/50" : "border-slate-200 bg-slate-50")}>
         <Monitor className="w-4 h-4 text-slate-500" />
-        <h2 className="font-semibold text-slate-800">Appearance</h2>
+        <h2 className={cn("font-semibold", darkMode ? "text-slate-100" : "text-slate-800")}>Appearance</h2>
       </div>
       <div className="p-4">
         <div className="flex items-center justify-between py-2">
           <div>
-            <p className="font-medium text-slate-900">Dark Mode</p>
-            <p className="text-sm text-slate-500">Switch between light and dark theme</p>
+            <p className={cn("font-medium", darkMode ? "text-slate-100" : "text-slate-900")}>Dark Mode</p>
+            <p className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>Switch between light and dark theme</p>
           </div>
           <button
             onClick={onToggleDarkMode}
-            className={cn(
-              "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
-              darkMode ? "bg-indigo-600" : "bg-slate-200"
-            )}
+            className={cn("relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2", darkMode ? "bg-indigo-600" : "bg-slate-200")}
             aria-label="Toggle dark mode"
           >
-            <span
-              className={cn(
-                "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-                darkMode ? "translate-x-6" : "translate-x-1"
-              )}
-            />
+            <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform", darkMode ? "translate-x-6" : "translate-x-1")} />
           </button>
         </div>
       </div>
     </div>
 
-    {/* Profile */}
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
-        <Users className="w-4 h-4 text-slate-500" />
-        <h2 className="font-semibold text-slate-800">Profile</h2>
+    {/* Team Profile */}
+    <div className={cn("rounded-xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+      <div className={cn("p-4 border-b flex items-center justify-between", darkMode ? "border-slate-700 bg-slate-700/50" : "border-slate-200 bg-slate-50")}>
+        <div className="flex items-center gap-2">
+          <UserCog className="w-4 h-4 text-slate-500" />
+          <h2 className={cn("font-semibold", darkMode ? "text-slate-100" : "text-slate-800")}>Team Profile</h2>
+        </div>
+        {!editing && (
+          <button onClick={() => setEditing(true)} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1">
+            <Edit3 className="w-3.5 h-3.5" /> Edit
+          </button>
+        )}
+        {saved && <span className="text-xs text-emerald-600 font-medium flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saved</span>}
+      </div>
+      <div className="p-4 space-y-4">
+        {!editing ? (
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg shrink-0">
+              {initials}
+            </div>
+            <div>
+              <p className={cn("font-semibold", darkMode ? "text-slate-100" : "text-slate-900")}>{preferences.agent1Name} &amp; {preferences.agent2Name}</p>
+              <p className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>{preferences.teamName}</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className={cn("block text-xs font-medium mb-1", darkMode ? "text-slate-300" : "text-slate-600")}>Team Name</label>
+              <input value={form.teamName} onChange={e => setForm(f => ({...f, teamName: e.target.value}))} className={cn("w-full px-3 py-2 border rounded-lg text-sm", darkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "border-slate-200")} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={cn("block text-xs font-medium mb-1", darkMode ? "text-slate-300" : "text-slate-600")}>Agent 1 Name</label>
+                <input value={form.agent1Name} onChange={e => setForm(f => ({...f, agent1Name: e.target.value}))} className={cn("w-full px-3 py-2 border rounded-lg text-sm", darkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "border-slate-200")} />
+              </div>
+              <div>
+                <label className={cn("block text-xs font-medium mb-1", darkMode ? "text-slate-300" : "text-slate-600")}>Agent 2 Name</label>
+                <input value={form.agent2Name} onChange={e => setForm(f => ({...f, agent2Name: e.target.value}))} className={cn("w-full px-3 py-2 border rounded-lg text-sm", darkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "border-slate-200")} />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Commission Defaults */}
+    <div className={cn("rounded-xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+      <div className={cn("p-4 border-b flex items-center justify-between", darkMode ? "border-slate-700 bg-slate-700/50" : "border-slate-200 bg-slate-50")}>
+        <div className="flex items-center gap-2">
+          <Sliders className="w-4 h-4 text-slate-500" />
+          <h2 className={cn("font-semibold", darkMode ? "text-slate-100" : "text-slate-800")}>Commission Defaults</h2>
+        </div>
+        {!editing && (
+          <button onClick={() => setEditing(true)} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1">
+            <Edit3 className="w-3.5 h-3.5" /> Edit
+          </button>
+        )}
       </div>
       <div className="p-4">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-lg shrink-0">
-            TK
+        {!editing ? (
+          <div className="divide-y divide-slate-100">
+            {[
+              ['Gross Commission %', `${preferences.defaultGrossCommissionPercent}%`],
+              ['LAO Cut %', `${preferences.defaultLaoCutPercent}%`],
+              [`${preferences.agent1Name} Split`, `${preferences.defaultTreySplit}%`],
+              [`${preferences.agent2Name} Split`, `${preferences.defaultKirkSplit}%`],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between py-2.5">
+                <span className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>{label}</span>
+                <span className={cn("text-sm font-medium", darkMode ? "text-slate-100" : "text-slate-900")}>{value}</span>
+              </div>
+            ))}
           </div>
-          <div>
-            <p className="font-semibold text-slate-900">Trey &amp; Kirk</p>
-            <p className="text-sm text-slate-500">LAO Team</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Gross Comm %', key: 'defaultGrossCommissionPercent' as const },
+              { label: 'LAO Cut %', key: 'defaultLaoCutPercent' as const },
+              { label: `${form.agent1Name} Split %`, key: 'defaultTreySplit' as const },
+              { label: `${form.agent2Name} Split %`, key: 'defaultKirkSplit' as const },
+            ].map(({ label, key }) => (
+              <div key={key}>
+                <label className={cn("block text-xs font-medium mb-1", darkMode ? "text-slate-300" : "text-slate-600")}>{label}</label>
+                <input type="number" min={0} max={100} value={form[key]} onChange={e => setForm(f => ({...f, [key]: Number(e.target.value)}))} className={cn("w-full px-3 py-2 border rounded-lg text-sm", darkMode ? "bg-slate-700 border-slate-600 text-slate-100" : "border-slate-200")} />
+              </div>
+            ))}
           </div>
-        </div>
+        )}
+        {editing && (
+          <div className="flex gap-2 mt-4">
+            <button onClick={handleSave} className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">Save Changes</button>
+            <button onClick={() => { setEditing(false); setForm(preferences); }} className="flex-1 py-2 border border-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors">Cancel</button>
+          </div>
+        )}
       </div>
     </div>
 
     {/* About */}
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
+    <div className={cn("rounded-xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+      <div className={cn("p-4 border-b flex items-center gap-2", darkMode ? "border-slate-700 bg-slate-700/50" : "border-slate-200 bg-slate-50")}>
         <Info className="w-4 h-4 text-slate-500" />
-        <h2 className="font-semibold text-slate-800">About</h2>
+        <h2 className={cn("font-semibold", darkMode ? "text-slate-100" : "text-slate-800")}>About</h2>
       </div>
-      <div className="divide-y divide-slate-100">
+      <div className={cn("divide-y", darkMode ? "divide-slate-700" : "divide-slate-100")}>
         {[
           ['Application', 'LAO Pipeline Pro'],
-          ['Version', '1.0.0'],
+          ['Version', '2.0.0'],
           ['Built for', 'LAO Team'],
           ['Platform', 'Commercial Real Estate'],
         ].map(([label, value]) => (
           <div key={label} className="flex items-center justify-between px-4 py-3">
-            <span className="text-sm text-slate-500">{label}</span>
-            <span className="text-sm font-medium text-slate-900">{value}</span>
+            <span className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>{label}</span>
+            <span className={cn("text-sm font-medium", darkMode ? "text-slate-100" : "text-slate-900")}>{value}</span>
           </div>
         ))}
       </div>
     </div>
+
+    {/* Sign Out */}
+    {authEnabled && (
+      <div className={cn("rounded-xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+        <div className="p-4">
+          <button
+            onClick={onLogout}
+            className="w-full flex items-center justify-center gap-2 py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+  );
+};
+
+// --- Toast Container ---
+
+const ToastContainer = ({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss: (id: string) => void }) => (
+  <div className="fixed bottom-20 md:bottom-6 right-4 z-[200] flex flex-col gap-2 pointer-events-none max-w-sm w-full">
+    <AnimatePresence>
+      {toasts.map(t => (
+        <motion.div
+          key={t.id}
+          initial={{ opacity: 0, y: 16, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 8, scale: 0.95, transition: { duration: 0.15 } }}
+          className={cn(
+            'pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 shadow-lg text-sm font-medium',
+            t.type === 'success' && 'bg-emerald-600 text-white',
+            t.type === 'error' && 'bg-red-600 text-white',
+            t.type === 'info' && 'bg-slate-800 text-white',
+          )}
+        >
+          {t.type === 'success' && <CheckCheck className="w-4 h-4 shrink-0 mt-0.5" />}
+          {t.type === 'error' && <XCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+          {t.type === 'info' && <Info className="w-4 h-4 shrink-0 mt-0.5" />}
+          <span className="flex-1">{t.message}</span>
+          <button onClick={() => onDismiss(t.id)} className="opacity-70 hover:opacity-100 transition-opacity ml-1">
+            <X className="w-4 h-4" />
+          </button>
+        </motion.div>
+      ))}
+    </AnimatePresence>
   </div>
 );
+
+// --- Login Screen ---
+
+const LoginScreen = ({ onLogin, isLoading, error }: { onLogin: (password: string) => void; isLoading: boolean; error: string }) => {
+  const [password, setPassword] = React.useState('');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password) onLogin(password);
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+        className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm"
+      >
+        <div className="flex flex-col items-center gap-4 mb-8">
+          <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-200">
+            <TrendingUp className="w-8 h-8 text-white" />
+          </div>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-slate-900">LAO Pipeline Pro</h1>
+            <p className="text-slate-500 text-sm mt-1">Sign in to continue</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                ref={inputRef}
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Enter team password"
+                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          {error && (
+            <motion.p
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-sm text-red-600 flex items-center gap-1.5"
+            >
+              <XCircle className="w-4 h-4 shrink-0" />
+              {error}
+            </motion.p>
+          )}
+
+          <button
+            type="submit"
+            disabled={isLoading || !password}
+            className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white rounded-lg py-2.5 font-medium text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
+            {isLoading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+
+        <p className="text-center text-xs text-slate-400 mt-6">LAO Team · Commercial Real Estate</p>
+      </motion.div>
+    </div>
+  );
+};
+
+// --- Onboarding Modal ---
+
+const ONBOARDING_STEPS = [
+  {
+    icon: TrendingUp,
+    title: 'Welcome to LAO Pipeline Pro',
+    description: 'Your centralized hub for managing CRE deals, tracking leads, and forecasting commissions — all in one place.',
+  },
+  {
+    icon: List,
+    title: 'Manage Your Pipeline',
+    description: 'Use the Pipeline Manager to track deals from LOI through Close of Escrow. Create new deals with the "+ New Deal" button.',
+  },
+  {
+    icon: Users,
+    title: 'Track Leads',
+    description: 'Log contacts, set reminders, and move leads to active transactions when they convert.',
+  },
+  {
+    icon: DollarSign,
+    title: 'Commission Forecasting',
+    description: 'The Executive Dashboard automatically calculates gross commission, LAO cut, and individual agent splits based on deal data.',
+  },
+  {
+    icon: ShieldCheck,
+    title: "You're all set!",
+    description: 'Explore the dashboard, and reach out to your team if you need help. Let\'s close some deals.',
+  },
+];
+
+const OnboardingModal = ({ onComplete }: { onComplete: () => void }) => {
+  const [step, setStep] = React.useState(0);
+  const current = ONBOARDING_STEPS[step];
+  const Icon = current.icon;
+  const isLast = step === ONBOARDING_STEPS.length - 1;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="onboarding-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[150] flex items-center justify-center p-4"
+      >
+        <motion.div
+          key={`step-${step}`}
+          initial={{ opacity: 0, scale: 0.96, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0, transition: { type: 'spring', damping: 26, stiffness: 320 } }}
+          exit={{ opacity: 0, scale: 0.96, y: -8, transition: { duration: 0.12 } }}
+          className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md"
+        >
+          <div className="flex flex-col items-center text-center gap-5">
+            <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center">
+              <Icon className="w-8 h-8 text-indigo-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">{current.title}</h2>
+              <p className="text-slate-500 mt-2 leading-relaxed">{current.description}</p>
+            </div>
+
+            {/* Step dots */}
+            <div className="flex gap-1.5">
+              {ONBOARDING_STEPS.map((_, i) => (
+                <div key={i} className={cn('h-1.5 rounded-full transition-all', i === step ? 'w-6 bg-indigo-600' : 'w-1.5 bg-slate-200')} />
+              ))}
+            </div>
+
+            <div className="flex gap-3 w-full">
+              {step > 0 && (
+                <button
+                  onClick={() => setStep(s => s - 1)}
+                  className="flex-1 py-2.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                onClick={() => isLast ? onComplete() : setStep(s => s + 1)}
+                className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+              >
+                {isLast ? "Get Started" : "Next"}
+              </button>
+            </div>
+
+            {!isLast && (
+              <button onClick={onComplete} className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                Skip tour
+              </button>
+            )}
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
+// --- Error Boundary ---
+
+interface ErrorBoundaryState { hasError: boolean; error: Error | null }
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: null };
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState { return { hasError: true, error }; }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-lg border border-red-100 p-8 max-w-md w-full text-center">
+            <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-7 h-7 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Something went wrong</h2>
+            <p className="text-slate-500 text-sm mb-6">{this.state.error?.message || 'An unexpected error occurred.'}</p>
+            <button
+              // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+              // @ts-ignore
+              onClick={() => { (this as any).setState({ hasError: false, error: null }); window.location.reload(); }}
+              className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+            >
+              Reload App
+            </button>
+          </div>
+        </div>
+      );
+    }
+    // @ts-ignore
+    return (this as any).props.children;
+  }
+}
 
 // --- Main App Component ---
 
@@ -8436,7 +8830,39 @@ const MobileBottomNav = ({
   );
 };
 
-export default function App() {
+function AppInner() {
+  // --- Auth state ---
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [AUTH_ENABLED_CLIENT, setAuthEnabledClient] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  // --- Toast state ---
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const showToast = useCallback((message: string, type: ToastItem['type'] = 'info', duration = 4000) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setToasts(prev => [...prev, { id, type, message }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration);
+  }, []);
+  const dismissToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), []);
+
+  // --- Preferences state ---
+  const [preferences, setPreferences] = useState<AppPreferences>(loadPrefsFromStorage);
+  const savePreferences = useCallback((updates: Partial<AppPreferences>) => {
+    setPreferences(prev => {
+      const next = { ...prev, ...updates };
+      try { localStorage.setItem('lao_preferences', JSON.stringify(next)); } catch {}
+      fetch('/api/preferences', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) }).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  // --- Onboarding state ---
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // --- App state ---
+  const [dataLoading, setDataLoading] = useState(true);
   const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox' | 'settings'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
@@ -8444,7 +8870,9 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
   const [standaloneContacts, setStandaloneContacts] = useState<StandaloneContact[]>([]);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try { return localStorage.getItem('darkMode') === 'true'; } catch { return false; }
+  });
   const [actionLog, setActionLog] = useState<ActionLogEntry[]>([]);
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
 
@@ -8466,11 +8894,13 @@ export default function App() {
 
   const refreshData = useCallback(async () => {
     try {
-      const [transRes, leadsRes, actionRes, inboxRes] = await Promise.all([
+      const [transRes, leadsRes, actionRes, inboxRes, contactsRes, prefsRes] = await Promise.all([
         fetch('/api/transactions'),
         fetch('/api/leads'),
         fetch('/api/action-log'),
         fetch('/api/inbox'),
+        fetch('/api/contacts'),
+        fetch('/api/preferences'),
       ]);
       if (transRes.ok) {
         const data = await transRes.json();
@@ -8488,12 +8918,88 @@ export default function App() {
         const data = await inboxRes.json();
         setInboxItems(data);
       }
+      if (contactsRes.ok) {
+        const data = await contactsRes.json();
+        if (data.length > 0) setStandaloneContacts(data);
+      }
+      if (prefsRes.ok) {
+        const data = await prefsRes.json();
+        if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+          setPreferences(prev => {
+            const next = { ...prev, ...data };
+            try { localStorage.setItem('lao_preferences', JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
+      }
     } catch (e) {
       console.log('Could not load data from API:', e);
+      showToast('Failed to load some data. Using cached data.', 'error');
+    } finally {
+      setDataLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
-  useEffect(() => { refreshData(); }, []);
+  // Check authentication on mount, then load data
+  useEffect(() => {
+    fetch('/api/auth/me')
+      .then(r => r.json())
+      .then((data: { authenticated: boolean; authEnabled?: boolean }) => {
+        setIsAuthenticated(data.authenticated);
+        setAuthEnabledClient(data.authEnabled ?? false);
+        setAuthChecked(true);
+        if (data.authenticated) {
+          refreshData();
+          // Show onboarding on first visit
+          if (!localStorage.getItem('onboarding_done')) {
+            setShowOnboarding(true);
+          }
+        } else {
+          setDataLoading(false);
+        }
+      })
+      .catch(() => {
+        // If auth check fails, assume no auth needed (offline / dev with no server)
+        setIsAuthenticated(true);
+        setAuthChecked(true);
+        refreshData();
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleLogin = async (password: string) => {
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (res.ok) {
+        setIsAuthenticated(true);
+        refreshData();
+        if (!localStorage.getItem('onboarding_done')) {
+          setShowOnboarding(true);
+        }
+      } else {
+        setLoginError('Incorrect password. Please try again.');
+      }
+    } catch {
+      setLoginError('Connection error. Please try again.');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+    setIsAuthenticated(false);
+    setTransactions([]);
+    setLeads([]);
+    setActionLog([]);
+    setInboxItems([]);
+    setStandaloneContacts([]);
+  };
 
   // Scroll to top and reset viewport zoom on every view change
   useEffect(() => {
@@ -8565,14 +9071,17 @@ export default function App() {
 
   const handleAddStandaloneContact = (contact: StandaloneContact) => {
     setStandaloneContacts(prev => [...prev, contact]);
+    fetch('/api/contacts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contact) }).catch(console.error);
   };
 
   const handleUpdateStandaloneContact = (contact: StandaloneContact) => {
     setStandaloneContacts(prev => prev.map(c => c.id === contact.id ? contact : c));
+    fetch(`/api/contacts/${contact.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(contact) }).catch(console.error);
   };
 
   const handleDeleteStandaloneContact = (id: string) => {
     setStandaloneContacts(prev => prev.filter(c => c.id !== id));
+    fetch(`/api/contacts/${id}`, { method: 'DELETE' }).catch(console.error);
   };
 
   // Merge keepId contact into mergingId: update all source records then remove merged contact
@@ -8591,61 +9100,66 @@ export default function App() {
     };
 
     // Update transactions: replace merging contact's party data with keep contact's data
-    setTransactions(prev => prev.map(t => {
-      let changed = false;
-      const updateParty = (p: Party): Party => {
-        if (matchesContact(p.name, p.email)) {
-          changed = true;
-          return {
-            ...p,
-            name: keepContact.name,
-            entity: keepContact.entity || p.entity,
-            email: keepContact.email || p.email,
-            phone: keepContact.phone || p.phone,
-          };
-        }
-        return p;
-      };
-      const newBuyer = updateParty(t.buyer);
-      const newSeller = updateParty(t.seller);
-      const newOtherParties = t.otherParties.map(updateParty);
-      if (!changed) return t;
-      return { ...t, buyer: newBuyer, seller: newSeller, otherParties: newOtherParties };
-    }));
+    const updatedTransactions: Transaction[] = [];
+    setTransactions(prev => {
+      const next = prev.map(t => {
+        let changed = false;
+        const updateParty = (p: Party): Party => {
+          if (matchesContact(p.name, p.email)) {
+            changed = true;
+            return { ...p, name: keepContact.name, entity: keepContact.entity || p.entity, email: keepContact.email || p.email, phone: keepContact.phone || p.phone };
+          }
+          return p;
+        };
+        const newBuyer = updateParty(t.buyer);
+        const newSeller = updateParty(t.seller);
+        const newOtherParties = t.otherParties.map(updateParty);
+        if (!changed) return t;
+        const updated = { ...t, buyer: newBuyer, seller: newSeller, otherParties: newOtherParties };
+        updatedTransactions.push(updated);
+        return updated;
+      });
+      return next;
+    });
+    // Persist changed transactions
+    updatedTransactions.forEach(t => {
+      fetch(`/api/transactions/${t.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) }).catch(console.error);
+    });
 
     // Update leads: replace merging contact references with keep contact's data
-    setLeads(prev => prev.map(l => {
-      let changed = false;
-      let newLead = { ...l };
-      if (l.contactName && matchesContact(l.contactName, l.contactEmail)) {
-        newLead = {
-          ...newLead,
-          contactName: keepContact.name,
-          contactEmail: keepContact.email || l.contactEmail,
-          contactPhone: keepContact.phone || l.contactPhone,
-        };
-        changed = true;
-      }
-      const newContacts = (l.contacts || []).map(c => {
-        if (matchesContact(c.name, c.email)) {
+    const updatedLeads: Lead[] = [];
+    setLeads(prev => {
+      const next = prev.map(l => {
+        let changed = false;
+        let newLead = { ...l };
+        if (l.contactName && matchesContact(l.contactName, l.contactEmail)) {
+          newLead = { ...newLead, contactName: keepContact.name, contactEmail: keepContact.email || l.contactEmail, contactPhone: keepContact.phone || l.contactPhone };
           changed = true;
-          return {
-            ...c,
-            name: keepContact.name,
-            email: keepContact.email || c.email,
-            phone: keepContact.phone || c.phone,
-          };
         }
-        return c;
+        const newContacts = (l.contacts || []).map(c => {
+          if (matchesContact(c.name, c.email)) {
+            changed = true;
+            return { ...c, name: keepContact.name, email: keepContact.email || c.email, phone: keepContact.phone || c.phone };
+          }
+          return c;
+        });
+        if (!changed) return l;
+        const updated = { ...newLead, contacts: newContacts };
+        updatedLeads.push(updated);
+        return updated;
       });
-      if (!changed) return l;
-      return { ...newLead, contacts: newContacts };
-    }));
+      return next;
+    });
+    // Persist changed leads
+    updatedLeads.forEach(l => {
+      fetch(`/api/leads/${l.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(l) }).catch(console.error);
+    });
 
     // Remove merged contact from standalone contacts if present (match by ID, not name/email)
     const mergingStandaloneId = mergingContact.sources.find(s => s.type === 'standalone')?.id;
     if (mergingStandaloneId) {
       setStandaloneContacts(prev => prev.filter(c => c.id !== mergingStandaloneId));
+      fetch(`/api/contacts/${mergingStandaloneId}`, { method: 'DELETE' }).catch(console.error);
     }
 
     // Navigate to the kept contact
@@ -8680,7 +9194,8 @@ export default function App() {
       });
       return prev.map(t => t.id === updated.id ? updated : t);
     });
-    fetch(`/api/transactions/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
+    fetch(`/api/transactions/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) })
+      .catch(() => showToast(`Failed to save "${updated.dealName}". Changes may not persist.`, 'error'));
   };
 
   const handleCreateTransaction = (newDeal: Transaction) => {
@@ -8695,7 +9210,8 @@ export default function App() {
     setIsNewDealModalOpen(false);
     setSelectedDealId(newDeal.id);
     setCurrentView('detail');
-    fetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newDeal) }).catch(console.error);
+    fetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newDeal) })
+      .catch(() => showToast(`Failed to create "${newDeal.dealName}". Changes may not persist.`, 'error'));
   };
 
   const handleImportTransactions = (newTransactions: Transaction[]) => {
@@ -8729,13 +9245,16 @@ export default function App() {
       });
       return prev.map(l => l.id === updated.id ? updated : l);
     });
-    fetch(`/api/leads/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) }).catch(console.error);
+    fetch(`/api/leads/${updated.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) })
+      .catch(() => showToast(`Failed to save lead "${updated.projectName}". Changes may not persist.`, 'error'));
   };
 
   const handleImportLeads = (newLeads: Lead[]) => {
     setLeads(prev => [...prev, ...newLeads]);
     setCurrentView('leads');
-    fetch('/api/leads/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newLeads) }).catch(console.error);
+    fetch('/api/leads/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newLeads) })
+      .then(() => showToast(`Imported ${newLeads.length} lead${newLeads.length !== 1 ? 's' : ''}.`, 'success'))
+      .catch(() => showToast('Import saved locally but failed to sync to server.', 'error'));
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -9022,6 +9541,46 @@ export default function App() {
     </button>
   );
 
+  // Loading screen (before auth check completes)
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg">
+            <TrendingUp className="w-8 h-8 text-white" />
+          </div>
+          <Loader2 className="w-6 h-6 text-indigo-300 animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  // Login screen (when auth is enabled and user is not authenticated)
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={handleLogin} isLoading={loginLoading} error={loginError} />;
+  }
+
+  // Initial data loading skeleton
+  if (dataLoading) {
+    return (
+      <div className={cn("min-h-screen font-sans flex transition-colors duration-300", darkMode ? "bg-slate-900" : "bg-slate-50")}>
+        <div className="w-64 shrink-0 hidden md:flex flex-col border-r animate-pulse" style={{ borderColor: darkMode ? '#334155' : '#e2e8f0', background: darkMode ? '#1e293b' : '#fff' }}>
+          <div className="p-6 h-16 bg-slate-200 rounded m-4" />
+          <div className="p-4 space-y-3">
+            {[...Array(6)].map((_, i) => <div key={i} className="h-10 bg-slate-100 rounded-lg" />)}
+          </div>
+        </div>
+        <div className="flex-1 p-6 space-y-4">
+          <div className="h-8 w-64 bg-slate-200 rounded animate-pulse" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-slate-200 rounded-xl animate-pulse" />)}
+          </div>
+          <div className="h-64 bg-slate-200 rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("min-h-screen font-sans flex transition-colors duration-300", darkMode ? "bg-slate-900 text-slate-100 dark" : "bg-slate-50 text-slate-900")}>
       {/* Mobile Header */}
@@ -9090,13 +9649,13 @@ export default function App() {
         {/* Sidebar bottom — add pb-20 on mobile so content clears the bottom nav bar */}
         <div className={cn("p-4 border-t pb-20 md:pb-4", darkMode ? "border-slate-700" : "border-slate-100")}>
           <div className={cn("flex items-center gap-3 px-4 py-2", isSidebarCollapsed && "justify-center px-0")}>
-            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-xs shrink-0">
-              TK
+            <div className={cn("w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0", darkMode ? "bg-slate-700 text-slate-300" : "bg-slate-200 text-slate-600")}>
+              {`${preferences.agent1Name.charAt(0)}${preferences.agent2Name.charAt(0)}`.toUpperCase()}
             </div>
             {!isSidebarCollapsed && (
               <div className="text-sm overflow-hidden">
-                <p className="font-medium text-slate-900 truncate">Trey &amp; Kirk</p>
-                <p className="text-xs text-slate-500 truncate">LAO Team</p>
+                <p className={cn("font-medium truncate", darkMode ? "text-slate-100" : "text-slate-900")}>{preferences.agent1Name} &amp; {preferences.agent2Name}</p>
+                <p className={cn("text-xs truncate", darkMode ? "text-slate-400" : "text-slate-500")}>{preferences.teamName}</p>
               </div>
             )}
           </div>
@@ -9284,7 +9843,11 @@ export default function App() {
             <motion.div key="settings" variants={pageVariants} initial="initial" animate="animate" exit="exit">
               <SettingsView
                 darkMode={darkMode}
-                onToggleDarkMode={() => setDarkMode(d => !d)}
+                onToggleDarkMode={() => setDarkMode(d => { const next = !d; try { localStorage.setItem('darkMode', String(next)); } catch {} return next; })}
+                preferences={preferences}
+                onSavePreferences={savePreferences}
+                onLogout={handleLogout}
+                authEnabled={AUTH_ENABLED_CLIENT}
               />
             </motion.div>
           )}
@@ -9347,6 +9910,25 @@ export default function App() {
         darkMode={darkMode}
         inboxUnreadCount={inboxUnreadCount}
       />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      {/* Onboarding */}
+      {showOnboarding && (
+        <OnboardingModal onComplete={() => {
+          setShowOnboarding(false);
+          try { localStorage.setItem('onboarding_done', 'true'); } catch {}
+        }} />
+      )}
     </div>
   );
-};
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
+  );
+}
