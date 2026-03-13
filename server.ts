@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
@@ -18,6 +19,50 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Webhook secret for SendGrid inbound parse — set EMAIL_WEBHOOK_SECRET in .env.local
 const EMAIL_WEBHOOK_SECRET = process.env.EMAIL_WEBHOOK_SECRET || '';
+
+// --- Authentication ---
+const APP_PASSWORD = process.env.APP_PASSWORD || '';
+const AUTH_ENABLED = APP_PASSWORD.length > 0;
+const SESSION_COOKIE = 'lao_session';
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
+  const s = crypto.randomBytes(32).toString('hex');
+  if (IS_PROD) console.warn('[auth] SESSION_SECRET not set — sessions will reset on restart');
+  return s;
+})();
+
+function signToken(payload: string): string {
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifyToken(token: string): { exp: number } | null {
+  const lastDot = token.lastIndexOf('.');
+  if (lastDot < 0) return null;
+  const payload = token.slice(0, lastDot);
+  const sig = token.slice(lastDot + 1);
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try { return JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return null; }
+}
+
+function parseCookies(req: Request): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  (req.headers.cookie || '').split(';').forEach(c => {
+    const eq = c.indexOf('=');
+    if (eq > 0) cookies[c.slice(0, eq).trim()] = decodeURIComponent(c.slice(eq + 1).trim());
+  });
+  return cookies;
+}
+
+function requireAuth(req: Request, res: Response, next: express.NextFunction) {
+  if (!AUTH_ENABLED) { next(); return; }
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token) { res.status(401).json({ error: 'unauthenticated' }); return; }
+  const data = verifyToken(token);
+  if (!data || Date.now() > data.exp) { res.status(401).json({ error: 'session expired' }); return; }
+  next();
+}
 
 // Initialize SQLite
 let db: any = null;
@@ -45,6 +90,15 @@ try {
       data       TEXT NOT NULL,
       received_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS standalone_contacts (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS preferences (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   console.log('SQLite initialized successfully');
 } catch (e) {
@@ -62,6 +116,37 @@ app.get('/health', (_req: Request, res: Response) => {
 if (IS_PROD) {
   app.use(express.static(path.join(__dirname, 'dist')));
 }
+
+// --- Auth endpoints (no auth required) ---
+
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  if (!AUTH_ENABLED) { res.json({ ok: true }); return; }
+  const { password } = req.body as { password?: string };
+  if (password !== APP_PASSWORD) { res.status(401).json({ error: 'Invalid password' }); return; }
+  const now = Date.now();
+  const payload = Buffer.from(JSON.stringify({ iat: now, exp: now + SESSION_MAX_AGE_MS })).toString('base64url');
+  const token = signToken(payload);
+  const secure = IS_PROD ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_MAX_AGE_MS / 1000}${secure}`);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req: Request, res: Response) => {
+  if (!AUTH_ENABLED) { res.json({ authenticated: true, authEnabled: false }); return; }
+  const token = parseCookies(req)[SESSION_COOKIE];
+  if (!token) { res.json({ authenticated: false, authEnabled: true }); return; }
+  const data = verifyToken(token);
+  if (!data || Date.now() > data.exp) { res.json({ authenticated: false, authEnabled: true }); return; }
+  res.json({ authenticated: true, authEnabled: true });
+});
+
+app.post('/api/auth/logout', (_req: Request, res: Response) => {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`);
+  res.json({ ok: true });
+});
+
+// Apply auth guard to all remaining /api/* routes
+app.use('/api', requireAuth);
 
 // --- Transactions ---
 
@@ -396,6 +481,57 @@ app.get('/api/inbox/unread-count', (_req: Request, res: Response) => {
     try { return !JSON.parse(r.data).isRead; } catch { return false; }
   }).length;
   res.json({ count });
+});
+
+// --- Standalone Contacts ---
+
+app.get('/api/contacts', (_req: Request, res: Response) => {
+  if (!db) { res.json([]); return; }
+  const rows = db.prepare('SELECT data FROM standalone_contacts').all() as { data: string }[];
+  res.json(rows.map((r: { data: string }) => JSON.parse(r.data)));
+});
+
+app.post('/api/contacts', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+  const c = req.body;
+  db.prepare('INSERT OR REPLACE INTO standalone_contacts (id, data, updated_at) VALUES (?, ?, datetime(\'now\'))').run(c.id, JSON.stringify(c));
+  res.json(c);
+});
+
+app.put('/api/contacts/:id', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+  const c = req.body;
+  db.prepare('UPDATE standalone_contacts SET data = ?, updated_at = datetime(\'now\') WHERE id = ?').run(JSON.stringify(c), req.params.id);
+  res.json(c);
+});
+
+app.delete('/api/contacts/:id', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+  db.prepare('DELETE FROM standalone_contacts WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// --- Preferences ---
+
+app.get('/api/preferences', (_req: Request, res: Response) => {
+  if (!db) { res.json({}); return; }
+  const rows = db.prepare('SELECT key, value FROM preferences').all() as { key: string; value: string }[];
+  const prefs: Record<string, unknown> = {};
+  rows.forEach((r: { key: string; value: string }) => {
+    try { prefs[r.key] = JSON.parse(r.value); } catch { prefs[r.key] = r.value; }
+  });
+  res.json(prefs);
+});
+
+app.post('/api/preferences', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+  const updates = req.body as Record<string, unknown>;
+  const upsert = db.prepare('INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)');
+  const upsertMany = db.transaction(() => {
+    Object.entries(updates).forEach(([k, v]) => upsert.run(k, JSON.stringify(v)));
+  });
+  upsertMany();
+  res.json({ ok: true });
 });
 
 // Catch-all: serve React app in production
