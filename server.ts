@@ -145,6 +145,49 @@ app.post('/api/auth/logout', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// POST /api/email-inbox — registered BEFORE auth guard so external services (Google Apps Script, SendGrid) can POST without a session cookie
+// Accepts:
+//   - application/json        ← Google Apps Script bridge
+//   - multipart/form-data     ← SendGrid Inbound Parse
+//   - application/x-www-form-urlencoded ← fallback
+app.post('/api/email-inbox', (req: Request, res: Response) => {
+  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+
+  // Optional webhook secret check
+  if (EMAIL_WEBHOOK_SECRET) {
+    const provided = req.headers['x-webhook-secret'] || req.headers['x-sendgrid-webhook-secret'];
+    if (provided !== EMAIL_WEBHOOK_SECRET) {
+      res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+  }
+
+  // JSON payload (Google Apps Script sends application/json)
+  if (req.is('application/json')) {
+    processEmailPayload(req, res, []);
+    return;
+  }
+
+  // Multipart (SendGrid) or urlencoded fallback
+  const upload = getMulter();
+  if (!upload) {
+    express.urlencoded({ extended: true, limit: '10mb' })(req, res, () => {
+      processEmailPayload(req, res, []);
+    });
+    return;
+  }
+
+  upload.any()(req, res, (err: any) => {
+    if (err) {
+      console.error('Multer error:', err);
+      res.status(400).json({ error: 'Failed to parse multipart payload' });
+      return;
+    }
+    const files = (req as any).files as Express.Multer.File[] | undefined;
+    processEmailPayload(req, res, files || []);
+  });
+});
+
 // Apply auth guard to all remaining /api/* routes
 app.use('/api', requireAuth);
 
@@ -347,49 +390,6 @@ function emailToColor(email: string): string {
   for (let i = 0; i < email.length; i++) hash = email.charCodeAt(i) + ((hash << 5) - hash);
   return colors[Math.abs(hash) % colors.length];
 }
-
-// POST /api/email-inbox
-// Accepts:
-//   - application/json        ← Google Apps Script bridge
-//   - multipart/form-data     ← SendGrid Inbound Parse
-//   - application/x-www-form-urlencoded ← fallback
-app.post('/api/email-inbox', (req: Request, res: Response) => {
-  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
-
-  // Optional webhook secret check
-  if (EMAIL_WEBHOOK_SECRET) {
-    const provided = req.headers['x-webhook-secret'] || req.headers['x-sendgrid-webhook-secret'];
-    if (provided !== EMAIL_WEBHOOK_SECRET) {
-      res.status(401).json({ error: 'unauthorized' });
-      return;
-    }
-  }
-
-  // JSON payload (Google Apps Script sends application/json)
-  if (req.is('application/json')) {
-    processEmailPayload(req, res, []);
-    return;
-  }
-
-  // Multipart (SendGrid) or urlencoded fallback
-  const upload = getMulter();
-  if (!upload) {
-    express.urlencoded({ extended: true, limit: '10mb' })(req, res, () => {
-      processEmailPayload(req, res, []);
-    });
-    return;
-  }
-
-  upload.any()(req, res, (err: any) => {
-    if (err) {
-      console.error('Multer error:', err);
-      res.status(400).json({ error: 'Failed to parse multipart payload' });
-      return;
-    }
-    const files = (req as any).files as Express.Multer.File[] | undefined;
-    processEmailPayload(req, res, files || []);
-  });
-});
 
 function processEmailPayload(req: Request, res: Response, files: any[]) {
   try {
