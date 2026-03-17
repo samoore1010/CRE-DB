@@ -24,7 +24,7 @@ const EMAIL_WEBHOOK_SECRET = process.env.EMAIL_WEBHOOK_SECRET || '';
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const AUTH_ENABLED = APP_PASSWORD.length > 0;
 const SESSION_COOKIE = 'lao_session';
-const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
 const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
   const s = crypto.randomBytes(32).toString('hex');
   if (IS_PROD) console.warn('[auth] SESSION_SECRET not set — sessions will reset on restart');
