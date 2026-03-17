@@ -80,7 +80,8 @@ import {
   HelpCircle,
   BarChart2,
   FileDown,
-  Printer
+  Printer,
+  CheckSquare
 } from 'lucide-react';
 import { 
   format, 
@@ -355,6 +356,13 @@ interface LeadReminder {
   date: string; // ISO Date
   description: string;
   completed: boolean;
+}
+
+interface BulletinItem {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: string;
 }
 
 interface ContactSource {
@@ -1698,7 +1706,7 @@ const DataManagementView = ({
   );
 };
 
-const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, onNavigateToInbox, inboxItems, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, onNavigateToInbox?: () => void, inboxItems?: InboxItem[], darkMode?: boolean }) => {
+const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, onNavigateToInbox, inboxItems, darkMode, bulletinItems, onAddBulletinItem, onToggleBulletinItem, onDeleteBulletinItem }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, onNavigateToInbox?: () => void, inboxItems?: InboxItem[], darkMode?: boolean, bulletinItems?: BulletinItem[], onAddBulletinItem?: (text: string) => void, onToggleBulletinItem?: (id: string) => void, onDeleteBulletinItem?: (id: string) => void }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [monthPickerYear, setMonthPickerYear] = useState(() => new Date().getFullYear());
@@ -1712,6 +1720,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
   const [comboSearch, setComboSearch] = useState('');
   const [comboOpen, setComboOpen] = useState(false);
   const [notesSearch, setNotesSearch] = useState('');
+  const [bulletinInput, setBulletinInput] = useState('');
 
   // Dashboard Metrics & Derived Data
   const { metrics, actionItems, recentActivity, pipelineHealth, leadHealth } = useMemo(() => {
@@ -2631,6 +2640,85 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
               </div>
             </div>
           )}
+
+          {/* Bulletin Board / Global Checklist */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
+                <CheckSquare className="w-4 h-4 text-slate-500" /> Bulletin Board
+              </h3>
+              {(bulletinItems || []).filter(i => i.completed).length > 0 && (
+                <button
+                  onClick={() => (bulletinItems || []).filter(i => i.completed).forEach(i => onDeleteBulletinItem?.(i.id))}
+                  className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors"
+                >
+                  Clear Done
+                </button>
+              )}
+            </div>
+
+            {/* Add item input */}
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                const text = bulletinInput.trim();
+                if (text && onAddBulletinItem) { onAddBulletinItem(text); setBulletinInput(''); }
+              }}
+              className="flex gap-2 mb-4"
+            >
+              <input
+                type="text"
+                value={bulletinInput}
+                onChange={e => setBulletinInput(e.target.value)}
+                placeholder="Add a to-do item..."
+                className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+              <button
+                type="submit"
+                disabled={!bulletinInput.trim()}
+                className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+            </form>
+
+            {/* Items list */}
+            {(bulletinItems || []).length === 0 ? (
+              <p className="text-xs text-slate-400 italic text-center py-4">No items yet. Add something above.</p>
+            ) : (
+              <ul className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                {(bulletinItems || []).map(item => (
+                  <li key={item.id} className="flex items-start gap-2 group">
+                    <button
+                      onClick={() => onToggleBulletinItem?.(item.id)}
+                      className={cn(
+                        "mt-0.5 w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors",
+                        item.completed ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300 hover:border-indigo-400"
+                      )}
+                    >
+                      {item.completed && <Check className="w-2.5 h-2.5" />}
+                    </button>
+                    <span className={cn("text-xs flex-1 leading-relaxed break-words", item.completed ? "line-through text-slate-400" : "text-slate-700")}>
+                      {item.text}
+                    </span>
+                    <button
+                      onClick={() => onDeleteBulletinItem?.(item.id)}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-500 text-slate-300 transition-all shrink-0"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* Summary footer */}
+            {(bulletinItems || []).length > 0 && (
+              <p className="text-[10px] text-slate-400 mt-3 pt-3 border-t border-slate-100 font-medium">
+                {(bulletinItems || []).filter(i => i.completed).length} / {(bulletinItems || []).length} completed
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -8131,43 +8219,70 @@ const RecentlyDeletedView = ({
   onPermanentDeleteLead: (id: string) => void,
 }) => {
   const [tab, setTab] = useState<'transactions' | 'leads'>('transactions');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const DeleteRow = ({ name, deletedAt, onRestore, onDelete, confirmMsg }: { key?: string, name: string, deletedAt?: string, onRestore: () => void, onDelete: () => void, confirmMsg: string }) => (
-    <tr className="hover:bg-slate-50">
-      <td className="px-6 py-4 font-medium text-slate-900">{name}</td>
-      <td className="px-6 py-4 text-slate-500">
-        {deletedAt ? format(parseISO(deletedAt), 'MMM d, yyyy h:mm a') : '-'}
-      </td>
-      <td className="px-6 py-4 text-right">
-        <div className="flex justify-end gap-2">
-          <button onClick={onRestore} className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1">
-            <RotateCcw className="w-3 h-3" /> Restore
-          </button>
-          <button
-            onClick={() => { if (confirm(confirmMsg)) onDelete(); }}
-            className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Delete Forever
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
+  const currentItems = tab === 'transactions' ? transactions : leads;
+  const allIds = currentItems.map(i => i.id);
+  const allSelected = allIds.length > 0 && allIds.every(id => selectedIds.has(id));
+  const someSelected = selectedIds.size > 0;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(allIds));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    const count = selectedIds.size;
+    if (!confirm(`Permanently delete ${count} item${count !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    selectedIds.forEach(id => {
+      if (tab === 'transactions') onPermanentDelete(id);
+      else onPermanentDeleteLead(id);
+    });
+    setSelectedIds(new Set());
+  };
+
+  // Reset selection when switching tabs
+  const handleTabChange = (newTab: 'transactions' | 'leads') => {
+    setTab(newTab);
+    setSelectedIds(new Set());
+  };
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+      <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between gap-3 flex-wrap">
         <h2 className="font-semibold text-slate-900 flex items-center gap-2">
           <Trash2 className="w-5 h-5 text-slate-500" />
           Recently Deleted
         </h2>
-        <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
-          <button onClick={() => setTab('transactions')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'transactions' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
-            Transactions {transactions.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{transactions.length}</span>}
-          </button>
-          <button onClick={() => setTab('leads')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'leads' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
-            Leads {leads.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{leads.length}</span>}
-          </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {someSelected && (
+            <button
+              onClick={handleBulkDelete}
+              className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors flex items-center gap-1.5 border border-red-200"
+            >
+              <Trash2 className="w-3 h-3" />
+              Delete {selectedIds.size} Forever
+            </button>
+          )}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            <button onClick={() => handleTabChange('transactions')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'transactions' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+              Transactions {transactions.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{transactions.length}</span>}
+            </button>
+            <button onClick={() => handleTabChange('leads')} className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", tab === 'leads' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+              Leads {leads.length > 0 && <span className="ml-1 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{leads.length}</span>}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -8175,37 +8290,64 @@ const RecentlyDeletedView = ({
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
             <tr>
-              <th className="px-6 py-3">{tab === 'transactions' ? 'Deal Name' : 'Project Name'}</th>
-              <th className="px-6 py-3">Deleted At</th>
-              <th className="px-6 py-3 text-right">Actions</th>
+              <th className="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  disabled={currentItems.length === 0}
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 cursor-pointer"
+                />
+              </th>
+              <th className="px-4 py-3">{tab === 'transactions' ? 'Deal Name' : 'Project Name'}</th>
+              <th className="px-4 py-3">Deleted At</th>
+              <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {tab === 'transactions' ? (
               transactions.length === 0 ? (
-                <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-500">No recently deleted transactions.</td></tr>
+                <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">No recently deleted transactions.</td></tr>
               ) : transactions.map(deal => (
-                <DeleteRow
-                  key={deal.id}
-                  name={deal.dealName}
-                  deletedAt={deal.deletedAt}
-                  onRestore={() => onRestore(deal.id)}
-                  onDelete={() => onPermanentDelete(deal.id)}
-                  confirmMsg="Permanently delete this transaction? This cannot be undone."
-                />
+                <tr key={deal.id} className={cn("hover:bg-slate-50 transition-colors", selectedIds.has(deal.id) && "bg-red-50/50")}>
+                  <td className="px-4 py-4">
+                    <input type="checkbox" checked={selectedIds.has(deal.id)} onChange={() => toggleSelect(deal.id)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 cursor-pointer" />
+                  </td>
+                  <td className="px-4 py-4 font-medium text-slate-900">{deal.dealName}</td>
+                  <td className="px-4 py-4 text-slate-500">{deal.deletedAt ? format(parseISO(deal.deletedAt), 'MMM d, yyyy h:mm a') : '-'}</td>
+                  <td className="px-4 py-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => onRestore(deal.id)} className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1">
+                        <RotateCcw className="w-3 h-3" /> Restore
+                      </button>
+                      <button onClick={() => { if (confirm('Permanently delete this transaction? This cannot be undone.')) onPermanentDelete(deal.id); }} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
+                        Delete Forever
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ))
             ) : (
               leads.length === 0 ? (
-                <tr><td colSpan={3} className="px-6 py-12 text-center text-slate-500">No recently deleted leads.</td></tr>
+                <tr><td colSpan={4} className="px-6 py-12 text-center text-slate-500">No recently deleted leads.</td></tr>
               ) : leads.map(lead => (
-                <DeleteRow
-                  key={lead.id}
-                  name={lead.projectName}
-                  deletedAt={lead.deletedAt}
-                  onRestore={() => onRestoreLead(lead.id)}
-                  onDelete={() => onPermanentDeleteLead(lead.id)}
-                  confirmMsg="Permanently delete this lead? This cannot be undone."
-                />
+                <tr key={lead.id} className={cn("hover:bg-slate-50 transition-colors", selectedIds.has(lead.id) && "bg-red-50/50")}>
+                  <td className="px-4 py-4">
+                    <input type="checkbox" checked={selectedIds.has(lead.id)} onChange={() => toggleSelect(lead.id)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 cursor-pointer" />
+                  </td>
+                  <td className="px-4 py-4 font-medium text-slate-900">{lead.projectName}</td>
+                  <td className="px-4 py-4 text-slate-500">{lead.deletedAt ? format(parseISO(lead.deletedAt), 'MMM d, yyyy h:mm a') : '-'}</td>
+                  <td className="px-4 py-4 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => onRestoreLead(lead.id)} className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1">
+                        <RotateCcw className="w-3 h-3" /> Restore
+                      </button>
+                      <button onClick={() => { if (confirm('Permanently delete this lead? This cannot be undone.')) onPermanentDeleteLead(lead.id); }} className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
+                        Delete Forever
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               ))
             )}
           </tbody>
@@ -9846,6 +9988,12 @@ function AppInner() {
   });
   const [actionLog, setActionLog] = useState<ActionLogEntry[]>([]);
   const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
+  const [bulletinItems, setBulletinItems] = useState<BulletinItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('bulletinItems');
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
 
   const logAction = (entry: Omit<ActionLogEntry, 'id' | 'timestamp'>) => {
     const newEntry: ActionLogEntry = {
@@ -9862,6 +10010,36 @@ function AppInner() {
       body: JSON.stringify(toStore),
     }).catch(console.error);
   };
+
+  const handleAddBulletinItem = useCallback((text: string) => {
+    const item: BulletinItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      text,
+      completed: false,
+      createdAt: new Date().toISOString(),
+    };
+    setBulletinItems(prev => {
+      const next = [...prev, item];
+      try { localStorage.setItem('bulletinItems', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleToggleBulletinItem = useCallback((id: string) => {
+    setBulletinItems(prev => {
+      const next = prev.map(i => i.id === id ? { ...i, completed: !i.completed } : i);
+      try { localStorage.setItem('bulletinItems', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleDeleteBulletinItem = useCallback((id: string) => {
+    setBulletinItems(prev => {
+      const next = prev.filter(i => i.id !== id);
+      try { localStorage.setItem('bulletinItems', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   const handleLogout = useCallback(async (expired = false) => {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
@@ -10719,6 +10897,10 @@ function AppInner() {
                 onNavigateToInbox={() => setCurrentView('inbox')}
                 inboxItems={inboxItems}
                 darkMode={darkMode}
+                bulletinItems={bulletinItems}
+                onAddBulletinItem={handleAddBulletinItem}
+                onToggleBulletinItem={handleToggleBulletinItem}
+                onDeleteBulletinItem={handleDeleteBulletinItem}
               />
             </motion.div>
           )}
