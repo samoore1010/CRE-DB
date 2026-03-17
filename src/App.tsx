@@ -363,6 +363,8 @@ interface BulletinItem {
   text: string;
   completed: boolean;
   createdAt: string;
+  transactionId?: string;
+  assignedTo?: 'Trey' | 'Kirk' | 'Pete';
 }
 
 interface ContactSource {
@@ -1706,7 +1708,7 @@ const DataManagementView = ({
   );
 };
 
-const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, onNavigateToInbox, inboxItems, darkMode, bulletinItems, onAddBulletinItem, onToggleBulletinItem, onDeleteBulletinItem }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, onNavigateToInbox?: () => void, inboxItems?: InboxItem[], darkMode?: boolean, bulletinItems?: BulletinItem[], onAddBulletinItem?: (text: string) => void, onToggleBulletinItem?: (id: string) => void, onDeleteBulletinItem?: (id: string) => void }) => {
+const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, onNavigateToInbox, inboxItems, darkMode, bulletinItems, onAddBulletinItem, onToggleBulletinItem, onDeleteBulletinItem, onUpdateTransaction }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, onNavigateToInbox?: () => void, inboxItems?: InboxItem[], darkMode?: boolean, bulletinItems?: BulletinItem[], onAddBulletinItem?: (text: string, transactionId?: string, assignedTo?: 'Trey' | 'Kirk' | 'Pete') => void, onToggleBulletinItem?: (id: string) => void, onDeleteBulletinItem?: (id: string) => void, onUpdateTransaction?: (t: Transaction) => void }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [monthPickerYear, setMonthPickerYear] = useState(() => new Date().getFullYear());
@@ -1721,6 +1723,8 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
   const [comboOpen, setComboOpen] = useState(false);
   const [notesSearch, setNotesSearch] = useState('');
   const [bulletinInput, setBulletinInput] = useState('');
+  const [bulletinDeal, setBulletinDeal] = useState('');
+  const [bulletinPerson, setBulletinPerson] = useState<'Trey' | 'Kirk' | 'Pete' | ''>('');
 
   // Dashboard Metrics & Derived Data
   const { metrics, actionItems, recentActivity, pipelineHealth, leadHealth } = useMemo(() => {
@@ -2662,24 +2666,53 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
               onSubmit={e => {
                 e.preventDefault();
                 const text = bulletinInput.trim();
-                if (text && onAddBulletinItem) { onAddBulletinItem(text); setBulletinInput(''); }
+                if (text && onAddBulletinItem) {
+                  onAddBulletinItem(text, bulletinDeal || undefined, (bulletinPerson as 'Trey' | 'Kirk' | 'Pete') || undefined);
+                  setBulletinInput('');
+                  setBulletinDeal('');
+                  setBulletinPerson('');
+                }
               }}
-              className="flex gap-2 mb-4"
+              className="space-y-2 mb-4"
             >
-              <input
-                type="text"
-                value={bulletinInput}
-                onChange={e => setBulletinInput(e.target.value)}
-                placeholder="Add a to-do item..."
-                className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-              <button
-                type="submit"
-                disabled={!bulletinInput.trim()}
-                className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={bulletinInput}
+                  onChange={e => setBulletinInput(e.target.value)}
+                  placeholder="Add a to-do item..."
+                  className="flex-1 px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+                <button
+                  type="submit"
+                  disabled={!bulletinInput.trim()}
+                  className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={bulletinDeal}
+                  onChange={e => setBulletinDeal(e.target.value)}
+                  className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-600"
+                >
+                  <option value="">Assign to deal (optional)</option>
+                  {transactions.filter(t => !t.isDeleted).map(t => (
+                    <option key={t.id} value={t.id}>{t.dealName}</option>
+                  ))}
+                </select>
+                <select
+                  value={bulletinPerson}
+                  onChange={e => setBulletinPerson(e.target.value as 'Trey' | 'Kirk' | 'Pete' | '')}
+                  className="w-28 px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-600"
+                >
+                  <option value="">Assignee</option>
+                  <option value="Trey">Trey</option>
+                  <option value="Kirk">Kirk</option>
+                  <option value="Pete">Pete</option>
+                </select>
+              </div>
             </form>
 
             {/* Items list */}
@@ -2687,7 +2720,9 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
               <p className="text-xs text-slate-400 italic text-center py-4">No items yet. Add something above.</p>
             ) : (
               <ul className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                {(bulletinItems || []).map(item => (
+                {(bulletinItems || []).map(item => {
+                  const assignedTxn = item.transactionId ? transactions.find(t => t.id === item.transactionId) : null;
+                  return (
                   <li key={item.id} className="flex items-start gap-2 group">
                     <button
                       onClick={() => onToggleBulletinItem?.(item.id)}
@@ -2698,9 +2733,30 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
                     >
                       {item.completed && <Check className="w-2.5 h-2.5" />}
                     </button>
-                    <span className={cn("text-xs flex-1 leading-relaxed break-words", item.completed ? "line-through text-slate-400" : "text-slate-700")}>
-                      {item.text}
-                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className={cn("text-xs leading-relaxed break-words block", item.completed ? "line-through text-slate-400" : "text-slate-700")}>
+                        {item.text}
+                      </span>
+                      {(assignedTxn || item.assignedTo) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {assignedTxn && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 truncate max-w-[120px]" title={assignedTxn.dealName}>
+                              🏢 {assignedTxn.dealName}
+                            </span>
+                          )}
+                          {item.assignedTo && (
+                            <span className={cn(
+                              "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                              item.assignedTo === 'Trey' ? "bg-amber-50 text-amber-700 border-amber-100" :
+                              item.assignedTo === 'Kirk' ? "bg-sky-50 text-sky-700 border-sky-100" :
+                              "bg-emerald-50 text-emerald-700 border-emerald-100"
+                            )}>
+                              👤 {item.assignedTo}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <button
                       onClick={() => onDeleteBulletinItem?.(item.id)}
                       className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-500 text-slate-300 transition-all shrink-0"
@@ -2708,7 +2764,8 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
                       <X className="w-3 h-3" />
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
 
@@ -10011,12 +10068,14 @@ function AppInner() {
     }).catch(console.error);
   };
 
-  const handleAddBulletinItem = useCallback((text: string) => {
+  const handleAddBulletinItem = useCallback((text: string, transactionId?: string, assignedTo?: 'Trey' | 'Kirk' | 'Pete') => {
     const item: BulletinItem = {
       id: Math.random().toString(36).substr(2, 9),
       text,
       completed: false,
       createdAt: new Date().toISOString(),
+      transactionId,
+      assignedTo,
     };
     setBulletinItems(prev => {
       const next = [...prev, item];
@@ -10025,13 +10084,27 @@ function AppInner() {
     });
   }, []);
 
-  const handleToggleBulletinItem = useCallback((id: string) => {
+  const handleToggleBulletinItem = (id: string) => {
+    const item = bulletinItems.find(i => i.id === id);
+    const becomingCompleted = item ? !item.completed : false;
     setBulletinItems(prev => {
       const next = prev.map(i => i.id === id ? { ...i, completed: !i.completed } : i);
       try { localStorage.setItem('bulletinItems', JSON.stringify(next)); } catch {}
       return next;
     });
-  }, []);
+    // When a task is marked complete and is assigned to a transaction, log to its activity timeline
+    if (item && becomingCompleted && item.transactionId) {
+      const txn = transactions.find(t => t.id === item.transactionId);
+      if (txn) {
+        const note: Note = {
+          id: Math.random().toString(36).substr(2, 9),
+          content: `Task completed: "${item.text}"${item.assignedTo ? ` — Assigned to: ${item.assignedTo}` : ''}`,
+          date: new Date().toISOString(),
+        };
+        handleUpdateTransaction({ ...txn, notesLog: [note, ...(txn.notesLog || [])] });
+      }
+    }
+  };
 
   const handleDeleteBulletinItem = useCallback((id: string) => {
     setBulletinItems(prev => {
@@ -10901,6 +10974,7 @@ function AppInner() {
                 onAddBulletinItem={handleAddBulletinItem}
                 onToggleBulletinItem={handleToggleBulletinItem}
                 onDeleteBulletinItem={handleDeleteBulletinItem}
+                onUpdateTransaction={handleUpdateTransaction}
               />
             </motion.div>
           )}
