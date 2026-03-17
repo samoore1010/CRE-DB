@@ -77,7 +77,10 @@ import {
   PartyPopper,
   ChevronUp,
   Sliders,
-  HelpCircle
+  HelpCircle,
+  BarChart2,
+  FileDown,
+  Printer
 } from 'lucide-react';
 import { 
   format, 
@@ -1697,6 +1700,11 @@ const DataManagementView = ({
 
 const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectLead, onAddReminder, onNavigate, onNavigateToInbox, inboxItems, darkMode }: { transactions: Transaction[], leads: Lead[], actionLog?: ActionLogEntry[], onSelectDeal: (id: string) => void, onSelectLead: (id: string) => void, onAddReminder?: (targetId: string, targetType: 'transaction' | 'lead', reminder: LeadReminder) => void, onNavigate?: (view: 'pipeline' | 'leads') => void, onNavigateToInbox?: () => void, inboxItems?: InboxItem[], darkMode?: boolean }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [monthPickerYear, setMonthPickerYear] = useState(() => new Date().getFullYear());
+  const [showICSModal, setShowICSModal] = useState(false);
+  const [icsScope, setICSScope] = useState<'all' | 'future' | 'months'>('all');
+  const [icsSelectedMonths, setICSSelectedMonths] = useState<string[]>([]);
   const [showQuickReminder, setShowQuickReminder] = useState(false);
   const [quickReminderTarget, setQuickReminderTarget] = useState<{ id: string, type: 'transaction' | 'lead' }>({ id: '', type: 'transaction' });
   const [quickReminderDate, setQuickReminderDate] = useState('');
@@ -2053,6 +2061,53 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
     return events;
   };
 
+  // Compute all calendar events for ICS export
+  const getAllCalendarEventsForICS = (): { title: string, start: Date, description?: string }[] => {
+    const events: { title: string, start: Date, description?: string }[] = [];
+    transactions.filter(t => !t.isDeleted).forEach(t => {
+      if (t.coeDate) events.push({ title: `COE: ${t.dealName}`, start: parseISO(t.coeDate), description: t.address || '' });
+      if (t.psaDate) events.push({ title: `PSA: ${t.dealName}`, start: parseISO(t.psaDate), description: t.address || '' });
+      if (t.feasibilityDate) events.push({ title: `Feasibility: ${t.dealName}`, start: parseISO(t.feasibilityDate), description: t.address || '' });
+      t.customDates.forEach(d => { if (d.date) events.push({ title: `${d.label}: ${t.dealName}`, start: parseISO(d.date) }); });
+      t.reminders?.forEach(r => { if (r.date && !r.completed) events.push({ title: `${r.description || 'Follow Up'}: ${t.dealName}`, start: parseISO(r.date) }); });
+    });
+    leads.filter(l => !l.isDeleted).forEach(l => {
+      l.reminders?.forEach(r => { if (r.date && !r.completed) events.push({ title: `${r.description || 'Follow Up'}: ${l.projectName}`, start: parseISO(r.date) }); });
+    });
+    return events;
+  };
+
+  const handleICSExport = () => {
+    const today = new Date();
+    const allEvents = getAllCalendarEventsForICS();
+    let filtered = allEvents;
+    if (icsScope === 'future') {
+      filtered = allEvents.filter(e => !isBefore(e.start, today) || isSameDay(e.start, today));
+    } else if (icsScope === 'months') {
+      filtered = allEvents.filter(e => icsSelectedMonths.includes(format(e.start, 'yyyy-MM')));
+    }
+    if (filtered.length === 0) return;
+    const ics = generateICS(filtered);
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'lao-pipeline-calendar.ics';
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowICSModal(false);
+    setICSSelectedMonths([]);
+  };
+
+  // Months that have events (for "Select Specific Months" option)
+  const monthsWithEvents = useMemo(() => {
+    const allEvents = getAllCalendarEventsForICS();
+    const monthSet = new Set<string>();
+    allEvents.forEach(e => monthSet.add(format(e.start, 'yyyy-MM')));
+    return Array.from(monthSet).sort();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, leads]);
+
   return (
     <div className="space-y-6 max-w-[1600px] mx-auto">
       {/* Bento Metrics Grid */}
@@ -2275,13 +2330,60 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
               <h2 className="font-bold text-slate-900 flex items-center gap-2 text-sm uppercase tracking-wider">
                 <CalendarIcon className="w-4 h-4 text-slate-500" /> Deal Calendar
               </h2>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                  <ChevronRight className="w-4 h-4 rotate-180" />
-                </button>
-                <span className="text-xs font-bold w-28 text-center uppercase tracking-tighter">{format(currentDate, 'MMMM yyyy')}</span>
-                <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                  <ChevronRight className="w-4 h-4" />
+              <div className="flex items-center gap-2">
+                {/* Month/Year navigation with popup picker */}
+                <div className="flex items-center gap-1 relative">
+                  <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => { setShowMonthPicker(v => !v); setMonthPickerYear(currentDate.getFullYear()); }}
+                    className="text-xs font-bold w-28 text-center uppercase tracking-tighter hover:text-indigo-600 hover:bg-indigo-50 rounded-md px-2 py-1 transition-colors"
+                  >
+                    {format(currentDate, 'MMMM yyyy')}
+                  </button>
+                  <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  {/* Month Picker Popup */}
+                  {showMonthPicker && (
+                    <div className="absolute top-full right-0 mt-1 z-50 bg-white rounded-xl border border-slate-200 shadow-xl p-3 w-64">
+                      <div className="flex items-center justify-between mb-2">
+                        <button onClick={() => setMonthPickerYear(y => y - 1)} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
+                          <ChevronLeft className="w-4 h-4 text-slate-500" />
+                        </button>
+                        <span className="text-sm font-bold text-slate-800">{monthPickerYear}</span>
+                        <button onClick={() => setMonthPickerYear(y => y + 1)} className="p-1 hover:bg-slate-100 rounded-full transition-colors">
+                          <ChevronRight className="w-4 h-4 text-slate-500" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => {
+                          const isSelected = currentDate.getMonth() === i && currentDate.getFullYear() === monthPickerYear;
+                          return (
+                            <button
+                              key={m}
+                              onClick={() => { setCurrentDate(new Date(monthPickerYear, i, 1)); setShowMonthPicker(false); }}
+                              className={cn(
+                                "py-1.5 rounded-lg text-xs font-semibold transition-colors",
+                                isSelected ? "bg-indigo-600 text-white" : "hover:bg-indigo-50 text-slate-700"
+                              )}
+                            >
+                              {m}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Export ICS button */}
+                <button
+                  onClick={() => setShowICSModal(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg border border-indigo-200 transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export .ics
                 </button>
               </div>
             </div>
@@ -2603,6 +2705,93 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
           <div className="flex justify-end gap-3 mt-6">
             <button onClick={() => { setShowQuickReminder(false); setComboSearch(''); setComboOpen(false); setQuickReminderTarget({ id: '', type: 'transaction' }); }} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
             <button onClick={handleQuickReminderSubmit} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors" disabled={!quickReminderTarget.id || !quickReminderDate || !quickReminderDesc.trim()}>Add Reminder</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Month picker backdrop */}
+    {showMonthPicker && (
+      <div className="fixed inset-0 z-40" onClick={() => setShowMonthPicker(false)} />
+    )}
+
+    {/* ICS Export Modal */}
+    {showICSModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+              <Download className="w-4 h-4 text-indigo-600" /> Export Calendar (.ics)
+            </h3>
+            <button onClick={() => { setShowICSModal(false); setICSSelectedMonths([]); }} className="p-1 hover:bg-slate-100 rounded-full">
+              <X className="w-4 h-4 text-slate-500" />
+            </button>
+          </div>
+          <p className="text-sm text-slate-500 mb-4">Choose which events to include in the export.</p>
+          <div className="space-y-2 mb-5">
+            {([
+              { value: 'all', label: 'Entire Calendar', desc: 'All events across all transactions and leads' },
+              { value: 'future', label: 'Future Dates Only', desc: 'Only events on or after today' },
+              { value: 'months', label: 'Select Specific Months', desc: 'Choose individual months to export' },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setICSScope(opt.value)}
+                className={cn(
+                  "w-full text-left p-3 rounded-xl border transition-colors",
+                  icsScope === opt.value ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:border-slate-300"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0", icsScope === opt.value ? "border-indigo-600" : "border-slate-300")}>
+                    {icsScope === opt.value && <div className="w-1.5 h-1.5 rounded-full bg-indigo-600" />}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">{opt.label}</p>
+                    <p className="text-xs text-slate-500">{opt.desc}</p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {icsScope === 'months' && (
+            <div className="mb-5">
+              {monthsWithEvents.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">No events found in any month.</p>
+              ) : (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {monthsWithEvents.map(ym => {
+                    const [y, m] = ym.split('-');
+                    const label = format(new Date(parseInt(y), parseInt(m) - 1, 1), 'MMM yyyy');
+                    const isSelected = icsSelectedMonths.includes(ym);
+                    return (
+                      <button
+                        key={ym}
+                        onClick={() => setICSSelectedMonths(prev => isSelected ? prev.filter(x => x !== ym) : [...prev, ym])}
+                        className={cn(
+                          "py-2 px-1 text-xs font-semibold rounded-lg border transition-colors",
+                          isSelected ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:text-indigo-600"
+                        )}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <button onClick={() => { setShowICSModal(false); setICSSelectedMonths([]); }} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">Cancel</button>
+            <button
+              onClick={handleICSExport}
+              disabled={icsScope === 'months' && icsSelectedMonths.length === 0}
+              className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" /> Export
+            </button>
           </div>
         </div>
       </div>
@@ -8554,9 +8743,447 @@ const ToastContainer = ({ toasts, onDismiss }: { toasts: ToastItem[]; onDismiss:
   </div>
 );
 
+// --- Reports View ---
+
+const ReportsView = ({
+  transactions,
+  leads,
+  contacts,
+  preferences,
+  darkMode,
+}: {
+  transactions: Transaction[];
+  leads: Lead[];
+  contacts: DerivedContact[];
+  preferences: AppPreferences;
+  darkMode?: boolean;
+}) => {
+  const agent1 = preferences.agent1Name || 'Trey';
+  const agent2 = preferences.agent2Name || 'Kirk';
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'ytd' | '30d' | '90d'>('all');
+
+  const today = useMemo(() => new Date(), []);
+
+  const filteredTransactions = useMemo(() => {
+    if (periodFilter === 'all') return transactions;
+    const cutoff =
+      periodFilter === 'ytd'
+        ? new Date(today.getFullYear(), 0, 1)
+        : periodFilter === '30d'
+        ? subDays(today, 30)
+        : subDays(today, 90);
+    return transactions.filter(t => {
+      const ref = t.coeDate ? parseISO(t.coeDate) : t.psaDate ? parseISO(t.psaDate) : null;
+      return ref ? isAfter(ref, cutoff) : false;
+    });
+  }, [transactions, periodFilter, today]);
+
+  // Commission by agent
+  const commissionByAgent = useMemo(() => {
+    let agent1Total = 0, agent2Total = 0;
+    filteredTransactions.forEach(t => {
+      const gross = t.price * (t.grossCommissionPercent / 100);
+      const net = gross - gross * (t.laoCutPercent / 100);
+      agent1Total += net * (t.treySplitPercent / 100);
+      agent2Total += net * (t.kirkSplitPercent / 100);
+    });
+    return [
+      { name: agent1, value: Math.round(agent1Total), color: '#10b981' },
+      { name: agent2, value: Math.round(agent2Total), color: '#6366f1' },
+    ];
+  }, [filteredTransactions, agent1, agent2]);
+
+  // Commission by stage
+  const commissionByStage = useMemo(() => {
+    const stages: Record<string, number> = {};
+    filteredTransactions.forEach(t => {
+      const gross = t.price * (t.grossCommissionPercent / 100);
+      stages[t.stage] = (stages[t.stage] || 0) + gross;
+    });
+    return Object.entries(stages).map(([name, value]) => ({ name, value: Math.round(value) }));
+  }, [filteredTransactions]);
+
+  // Commission by month (last 12 months)
+  const commissionByMonth = useMemo(() => {
+    const months: { month: string, [key: string]: number | string }[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const m = subMonths(today, i);
+      const mStart = startOfMonth(m);
+      const mEnd = endOfMonth(m);
+      let a1 = 0, a2 = 0;
+      transactions.filter(t => t.coeDate).forEach(t => {
+        const coe = parseISO(t.coeDate);
+        if (isWithinInterval(coe, { start: mStart, end: mEnd })) {
+          const gross = t.price * (t.grossCommissionPercent / 100);
+          const net = gross - gross * (t.laoCutPercent / 100);
+          a1 += net * (t.treySplitPercent / 100);
+          a2 += net * (t.kirkSplitPercent / 100);
+        }
+      });
+      months.push({ month: format(m, 'MMM yy'), [agent1]: Math.round(a1), [agent2]: Math.round(a2) });
+    }
+    return months;
+  }, [transactions, agent1, agent2, today]);
+
+  // Pipeline value by stage
+  const pipelineByStage = useMemo(() => {
+    const stages: Record<string, number> = {};
+    transactions.filter(t => t.stage !== 'Closed').forEach(t => {
+      const gross = t.price * (t.grossCommissionPercent / 100);
+      stages[t.stage] = (stages[t.stage] || 0) + gross;
+    });
+    return Object.entries(stages).map(([name, value]) => ({ name, value: Math.round(value) }));
+  }, [transactions]);
+
+  // Deal velocity: avg days per stage (based on closed deals, PSA → COE)
+  const dealVelocity = useMemo(() => {
+    const closed = transactions.filter(t => t.stage === 'Closed' && t.psaDate && t.coeDate);
+    if (closed.length === 0) return null;
+    const totalDays = closed.reduce((sum, t) => {
+      const diff = Math.round((parseISO(t.coeDate).getTime() - parseISO(t.psaDate).getTime()) / 86400000);
+      return sum + Math.max(0, diff);
+    }, 0);
+    return { avgDays: Math.round(totalDays / closed.length), count: closed.length };
+  }, [transactions]);
+
+  // Closed deal history
+  const closedDeals = useMemo(() => {
+    return transactions
+      .filter(t => t.stage === 'Closed')
+      .sort((a, b) => (b.coeDate || '').localeCompare(a.coeDate || ''))
+      .slice(0, 10);
+  }, [transactions]);
+
+  // Lead funnel
+  const leadFunnel = useMemo(() => {
+    const active = leads.filter(l => !l.isDeleted);
+    return [
+      { name: 'Total Leads', count: active.length, color: '#94a3b8' },
+      { name: 'True Lead', count: active.filter(l => l.type === 'True Lead').length, color: '#f59e0b' },
+      { name: 'Live Contract', count: active.filter(l => l.type === 'Live Contract').length, color: '#6366f1' },
+      { name: 'Converted', count: active.filter(l => l.type === 'Converted Lead (Escrow)').length, color: '#10b981' },
+    ];
+  }, [leads]);
+
+  // KPI summary
+  const kpis = useMemo(() => {
+    const closed = transactions.filter(t => t.stage === 'Closed');
+    const active = transactions.filter(t => t.stage !== 'Closed');
+    const totalGross = closed.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
+    const totalNet1 = closed.reduce((s, t) => {
+      const g = t.price * (t.grossCommissionPercent / 100);
+      return s + (g - g * (t.laoCutPercent / 100)) * (t.treySplitPercent / 100);
+    }, 0);
+    const totalNet2 = closed.reduce((s, t) => {
+      const g = t.price * (t.grossCommissionPercent / 100);
+      return s + (g - g * (t.laoCutPercent / 100)) * (t.kirkSplitPercent / 100);
+    }, 0);
+    const activeVal = active.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
+    return { totalGross, totalNet1, totalNet2, closedCount: closed.length, activeCount: active.length, activeVal };
+  }, [transactions]);
+
+  // CSV Export helpers
+  const downloadCSV = (filename: string, rows: string[][]) => {
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportTransactionsCSV = () => {
+    const headers = ['Deal Name', 'Stage', 'Price', 'Gross Commission %', 'LAO Cut %', `${agent1} Split %`, `${agent2} Split %`, 'Address', 'Acreage', 'Zoning', 'COE Date', 'PSA Date', 'Feasibility Date', 'County', 'APN'];
+    const rows = [headers, ...transactions.map(t => [t.dealName, t.stage, t.price, t.grossCommissionPercent, t.laoCutPercent, t.treySplitPercent, t.kirkSplitPercent, t.address, t.acreage, t.zoning, t.coeDate, t.psaDate, t.feasibilityDate, t.county || '', t.apn || ''])];
+    downloadCSV('transactions.csv', rows.map(r => r.map(String)));
+  };
+
+  const exportLeadsCSV = () => {
+    const headers = ['Project Name', 'Type', 'Contact Name', 'Details', 'Summary', 'Last Spoke Date'];
+    const rows = [headers, ...leads.filter(l => !l.isDeleted).map(l => [l.projectName, l.type, l.contactName, l.details, l.summary, l.lastSpokeDate])];
+    downloadCSV('leads.csv', rows.map(r => r.map(String)));
+  };
+
+  const exportContactsCSV = () => {
+    const headers = ['Name', 'Primary Role', 'Entity', 'Email', 'Phone', 'Sources'];
+    const rows = [headers, ...contacts.map(c => [c.name, c.primaryRole, c.entity || '', c.email || '', c.phone || '', c.sources.map(s => s.label).join('; ')])];
+    downloadCSV('contacts.csv', rows.map(r => r.map(String)));
+  };
+
+  const exportAllCSV = () => {
+    const txHeaders = ['Type', 'Deal Name', 'Stage', 'Price', 'Gross Commission %', 'COE Date', 'Address'];
+    const leadHeaders = ['Type', 'Project Name', 'Lead Type', 'Contact Name', 'Last Spoke Date', '', ''];
+    const rows = [
+      txHeaders,
+      ...transactions.map(t => ['Transaction', t.dealName, t.stage, t.price, t.grossCommissionPercent, t.coeDate, t.address]),
+      [''],
+      leadHeaders,
+      ...leads.filter(l => !l.isDeleted).map(l => ['Lead', l.projectName, l.type, l.contactName, l.lastSpokeDate, '', '']),
+    ];
+    downloadCSV('lao-pipeline-all.csv', rows.map(r => r.map(String)));
+  };
+
+  const handlePrint = () => window.print();
+
+  const STAGE_COLORS: Record<string, string> = { LOI: '#94a3b8', Contract: '#6366f1', Escrow: '#f59e0b', Closed: '#10b981', Option: '#f97316' };
+
+  return (
+    <div className="space-y-6 max-w-[1400px] mx-auto">
+      {/* Print styles injected inline */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #reports-print-area, #reports-print-area * { visibility: visible; }
+          #reports-print-area { position: absolute; left: 0; top: 0; width: 100%; }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+
+      <div id="reports-print-area">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+          <div>
+            <h1 className={cn("text-2xl font-bold", darkMode ? "text-slate-100" : "text-slate-900")}>Reports</h1>
+            <p className={cn("text-sm mt-0.5", darkMode ? "text-slate-400" : "text-slate-500")}>Pipeline analytics and commission summaries</p>
+          </div>
+          <div className="flex items-center gap-2 no-print">
+            {/* Period filter */}
+            <div className={cn("flex rounded-lg border text-xs font-semibold overflow-hidden", darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white")}>
+              {(['all', 'ytd', '90d', '30d'] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPeriodFilter(p)}
+                  className={cn(
+                    "px-3 py-2 transition-colors",
+                    periodFilter === p
+                      ? "bg-indigo-600 text-white"
+                      : darkMode ? "text-slate-300 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-50"
+                  )}
+                >
+                  {p === 'all' ? 'All Time' : p === 'ytd' ? 'YTD' : p === '90d' ? '90 Days' : '30 Days'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { label: 'Closed Deals', value: kpis.closedCount, format: 'count', color: 'text-slate-900' },
+            { label: 'Total Gross Commission', value: kpis.totalGross, format: 'currency', color: 'text-emerald-600' },
+            { label: `${agent1} Net Commission`, value: kpis.totalNet1, format: 'currency', color: 'text-indigo-600' },
+            { label: `${agent2} Net Commission`, value: kpis.totalNet2, format: 'currency', color: 'text-purple-600' },
+          ].map(card => (
+            <div key={card.label} className={cn("rounded-2xl p-5 border shadow-sm", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+              <p className={cn("text-xs font-bold uppercase tracking-widest mb-1", darkMode ? "text-slate-400" : "text-slate-500")}>{card.label}</p>
+              <p className={cn("text-2xl font-bold", card.color)}>
+                {card.format === 'currency' ? formatCurrency(card.value as number) : card.value}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Charts row 1 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Commission by agent (bar) */}
+          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
+              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Commission by Agent</h2>
+            </div>
+            <div className="p-4" style={{ height: 240 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={commissionByAgent} margin={{ left: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#f1f5f9'} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                  <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                  <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
+                  <Bar dataKey="value" name="Net Commission" radius={[6, 6, 0, 0]}>
+                    {commissionByAgent.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Commission by stage (pie) */}
+          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
+              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Gross Commission by Stage</h2>
+            </div>
+            <div className="p-4" style={{ height: 240 }}>
+              {commissionByStage.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">No data for period.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsPieChart>
+                    <Pie data={commissionByStage} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }: { name: string, percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                      {commissionByStage.map((entry, i) => <Cell key={i} fill={STAGE_COLORS[entry.name] || '#6366f1'} />)}
+                    </Pie>
+                    <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
+                  </RechartsPieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Commission by month chart */}
+        <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+          <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
+            <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Agent Commission by Month (12 Months)</h2>
+          </div>
+          <div className="p-4" style={{ height: 240 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={commissionByMonth} margin={{ left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#f1f5f9'} />
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
+                <Bar dataKey={agent1} fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey={agent2} fill="#6366f1" radius={[4, 4, 0, 0]} />
+                <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Pipeline value + Lead funnel row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Pipeline value by stage */}
+          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
+              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Active Pipeline Value by Stage</h2>
+            </div>
+            <div className="p-4" style={{ height: 220 }}>
+              {pipelineByStage.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">No active deals.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={pipelineByStage} layout="vertical" margin={{ left: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#f1f5f9'} />
+                    <XAxis type="number" tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} width={70} />
+                    <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
+                    <Bar dataKey="value" name="Gross Commission" radius={[0, 6, 6, 0]}>
+                      {pipelineByStage.map((entry, i) => <Cell key={i} fill={STAGE_COLORS[entry.name] || '#6366f1'} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {/* Lead conversion funnel */}
+          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
+              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Lead Conversion Funnel</h2>
+            </div>
+            <div className="p-6 space-y-3">
+              {leadFunnel.map((stage, i) => (
+                <div key={stage.name}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className={cn("text-xs font-semibold", darkMode ? "text-slate-300" : "text-slate-700")}>{stage.name}</span>
+                    <span className={cn("text-xs font-bold", darkMode ? "text-slate-200" : "text-slate-900")}>{stage.count}</span>
+                  </div>
+                  <div className={cn("w-full rounded-full h-3 overflow-hidden", darkMode ? "bg-slate-700" : "bg-slate-100")}>
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: leadFunnel[0].count > 0 ? `${(stage.count / leadFunnel[0].count) * 100}%` : '0%',
+                        background: stage.color,
+                        opacity: 1 - i * 0.1
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Deal velocity + closed deal history */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Deal velocity */}
+          <div className={cn("rounded-2xl border shadow-sm p-6", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+            <h2 className={cn("font-bold text-sm uppercase tracking-wider mb-4", darkMode ? "text-slate-200" : "text-slate-800")}>Deal Velocity</h2>
+            {dealVelocity ? (
+              <div className="space-y-3">
+                <div>
+                  <p className={cn("text-4xl font-bold", darkMode ? "text-slate-100" : "text-slate-900")}>{dealVelocity.avgDays}</p>
+                  <p className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>Avg. days from PSA to Close</p>
+                </div>
+                <p className={cn("text-xs", darkMode ? "text-slate-500" : "text-slate-400")}>Based on {dealVelocity.count} closed deal{dealVelocity.count !== 1 ? 's' : ''} with both PSA and COE dates.</p>
+              </div>
+            ) : (
+              <p className={cn("text-sm italic", darkMode ? "text-slate-500" : "text-slate-400")}>No closed deals with PSA + COE dates to calculate velocity.</p>
+            )}
+          </div>
+
+          {/* Closed deal history */}
+          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
+              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Closed Deal History (Recent 10)</h2>
+            </div>
+            <div className="overflow-x-auto">
+              {closedDeals.length === 0 ? (
+                <p className={cn("p-4 text-sm italic", darkMode ? "text-slate-500" : "text-slate-400")}>No closed deals yet.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className={cn("border-b", darkMode ? "bg-slate-700/50 border-slate-700 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-500")}>
+                    <tr>
+                      <th className="text-left px-4 py-2 font-semibold uppercase tracking-wider">Deal</th>
+                      <th className="text-left px-4 py-2 font-semibold uppercase tracking-wider">COE</th>
+                      <th className="text-right px-4 py-2 font-semibold uppercase tracking-wider">Price</th>
+                      <th className="text-right px-4 py-2 font-semibold uppercase tracking-wider">Gross Comm.</th>
+                    </tr>
+                  </thead>
+                  <tbody className={cn("divide-y", darkMode ? "divide-slate-700" : "divide-slate-100")}>
+                    {closedDeals.map(t => (
+                      <tr key={t.id} className={cn("transition-colors", darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50")}>
+                        <td className={cn("px-4 py-2.5 font-medium truncate max-w-[160px]", darkMode ? "text-slate-200" : "text-slate-800")}>{t.dealName}</td>
+                        <td className={cn("px-4 py-2.5", darkMode ? "text-slate-400" : "text-slate-500")}>{t.coeDate ? format(parseISO(t.coeDate), 'MMM d, yyyy') : '—'}</td>
+                        <td className={cn("px-4 py-2.5 text-right", darkMode ? "text-slate-300" : "text-slate-700")}>{formatCurrency(t.price)}</td>
+                        <td className={cn("px-4 py-2.5 text-right font-semibold", darkMode ? "text-emerald-400" : "text-emerald-600")}>{formatCurrency(t.price * (t.grossCommissionPercent / 100))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Export buttons */}
+      <div className={cn("rounded-2xl border shadow-sm p-5 no-print", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
+        <h2 className={cn("font-bold text-sm uppercase tracking-wider mb-4", darkMode ? "text-slate-200" : "text-slate-800")}>Export Data</h2>
+        <div className="flex flex-wrap gap-3">
+          <button onClick={exportTransactionsCSV} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors">
+            <FileDown className="w-4 h-4" /> Transactions CSV
+          </button>
+          <button onClick={exportLeadsCSV} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors">
+            <FileDown className="w-4 h-4" /> Leads CSV
+          </button>
+          <button onClick={exportContactsCSV} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors">
+            <FileDown className="w-4 h-4" /> Contacts CSV
+          </button>
+          <button onClick={exportAllCSV} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg border border-slate-200 transition-colors">
+            <FileDown className="w-4 h-4" /> All Data CSV
+          </button>
+          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors">
+            <Printer className="w-4 h-4" /> PDF Report (Print)
+          </button>
+        </div>
+        <p className={cn("text-xs mt-2", darkMode ? "text-slate-500" : "text-slate-400")}>PDF Report: use your browser's "Save as PDF" option in the print dialog for a formatted report.</p>
+      </div>
+    </div>
+  );
+};
+
 // --- Login Screen ---
 
-const LoginScreen = ({ onLogin, isLoading, error }: { onLogin: (password: string) => void; isLoading: boolean; error: string }) => {
+const LoginScreen = ({ onLogin, isLoading, error, sessionExpiredMessage }: { onLogin: (password: string) => void; isLoading: boolean; error: string; sessionExpiredMessage?: string }) => {
   const [password, setPassword] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -8584,6 +9211,16 @@ const LoginScreen = ({ onLogin, isLoading, error }: { onLogin: (password: string
             <p className="text-slate-500 text-sm mt-1">Sign in to continue</p>
           </div>
         </div>
+        {sessionExpiredMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-4 flex items-center gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700"
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {sessionExpiredMessage}
+          </motion.div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -9167,6 +9804,7 @@ function AppInner() {
   const [AUTH_ENABLED_CLIENT, setAuthEnabledClient] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // --- Toast state ---
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -9196,7 +9834,7 @@ function AppInner() {
 
   // --- App state ---
   const [dataLoading, setDataLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox' | 'settings'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'pipeline' | 'leads' | 'reports' | 'detail' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox' | 'settings'>('dashboard');
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
@@ -9225,6 +9863,17 @@ function AppInner() {
     }).catch(console.error);
   };
 
+  const handleLogout = useCallback(async (expired = false) => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+    setIsAuthenticated(false);
+    setSessionExpired(expired);
+    setTransactions([]);
+    setLeads([]);
+    setActionLog([]);
+    setInboxItems([]);
+    setStandaloneContacts([]);
+  }, []);
+
   const refreshData = useCallback(async () => {
     try {
       const [transRes, leadsRes, actionRes, inboxRes, contactsRes, prefsRes] = await Promise.all([
@@ -9235,6 +9884,11 @@ function AppInner() {
         fetch('/api/contacts'),
         fetch('/api/preferences'),
       ]);
+      // If any response is 401, the session has expired
+      if ([transRes, leadsRes, actionRes, inboxRes, contactsRes, prefsRes].some(r => r.status === 401)) {
+        handleLogout(true);
+        return;
+      }
       if (transRes.ok) {
         const data = await transRes.json();
         if (data.length > 0) setTransactions(data);
@@ -9271,7 +9925,7 @@ function AppInner() {
     } finally {
       setDataLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, handleLogout]);
 
   // Check authentication on mount, then load data
   useEffect(() => {
@@ -9302,6 +9956,7 @@ function AppInner() {
   const handleLogin = async (password: string) => {
     setLoginLoading(true);
     setLoginError('');
+    setSessionExpired(false);
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -9324,15 +9979,38 @@ function AppInner() {
     }
   };
 
-  const handleLogout = async () => {
-    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
-    setIsAuthenticated(false);
-    setTransactions([]);
-    setLeads([]);
-    setActionLog([]);
-    setInboxItems([]);
-    setStandaloneContacts([]);
-  };
+  // Global 401 interceptor — any /api call returning 401 triggers session expiry
+  useEffect(() => {
+    if (!isAuthenticated || !AUTH_ENABLED_CLIENT) return;
+    const origFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const res = await origFetch(...args);
+      const url = typeof args[0] === 'string' ? args[0] : args[0] instanceof Request ? args[0].url : '';
+      if (res.status === 401 && url.includes('/api/') && !url.includes('/api/auth/')) {
+        handleLogout(true);
+      }
+      return res;
+    };
+    return () => { window.fetch = origFetch; };
+  }, [isAuthenticated, AUTH_ENABLED_CLIENT, handleLogout]);
+
+  // Inactivity timer — auto-logout after 8 hours of no interaction
+  useEffect(() => {
+    if (!isAuthenticated || !AUTH_ENABLED_CLIENT) return;
+    const INACTIVITY_MS = 8 * 60 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { handleLogout(true); }, INACTIVITY_MS);
+    };
+    const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => {
+      clearTimeout(timer);
+      events.forEach(e => window.removeEventListener(e, reset));
+    };
+  }, [isAuthenticated, AUTH_ENABLED_CLIENT, handleLogout]);
 
   // Scroll to top and reset viewport zoom on every view change
   useEffect(() => {
@@ -9841,7 +10519,7 @@ function AppInner() {
   // Unread count for badge
   const inboxUnreadCount = inboxItems.filter(i => !i.isRead && !i.isDeleted).length;
 
-  const NavItem = ({ view, icon: Icon, label, badge }: { view: 'dashboard' | 'pipeline' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox' | 'settings', icon: any, label: string, badge?: number }) => (
+  const NavItem = ({ view, icon: Icon, label, badge }: { view: 'dashboard' | 'pipeline' | 'reports' | 'leads' | 'import' | 'deleted' | 'contacts' | 'recent-actions' | 'inbox' | 'settings', icon: any, label: string, badge?: number }) => (
     <button
       onClick={() => {
         setCurrentView(view);
@@ -9890,7 +10568,7 @@ function AppInner() {
 
   // Login screen (when auth is enabled and user is not authenticated)
   if (!isAuthenticated) {
-    return <LoginScreen onLogin={handleLogin} isLoading={loginLoading} error={loginError} />;
+    return <LoginScreen onLogin={handleLogin} isLoading={loginLoading} error={loginError} sessionExpiredMessage={sessionExpired ? 'Your session has expired. Please sign in again.' : undefined} />;
   }
 
   // Initial data loading skeleton
@@ -9949,6 +10627,7 @@ function AppInner() {
           <div className="space-y-2">
             <NavItem view="dashboard" icon={LayoutDashboard} label="Executive Dashboard" />
             <NavItem view="pipeline" icon={List} label="Pipeline Manager" />
+            <NavItem view="reports" icon={BarChart2} label="Reports" />
             <NavItem view="leads" icon={Users} label="Leads Tracker" />
             <NavItem view="inbox" icon={Inbox} label="Email Inbox" badge={inboxUnreadCount || undefined} />
             <NavItem view="contacts" icon={BookUser} label="Contacts" />
@@ -10064,6 +10743,18 @@ function AppInner() {
                 onDeleteLead={handleDeleteLead}
                 onBatchDelete={handleBatchDeleteLeads}
                 onUpdateLead={handleUpdateLead}
+              />
+            </motion.div>
+          )}
+
+          {currentView === 'reports' && !selectedDealId && (
+            <motion.div key="reports" variants={pageVariants} initial="initial" animate="animate" exit="exit">
+              <ReportsView
+                transactions={activeTransactions}
+                leads={activeLeads}
+                contacts={allContacts}
+                preferences={preferences}
+                darkMode={darkMode}
               />
             </motion.div>
           )}
