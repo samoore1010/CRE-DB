@@ -449,7 +449,8 @@ interface Transaction {
   stage: PipelineStage;
   price: number;
   grossCommissionPercent: number;
-  laoCutPercent: number;
+  treyLaoPercent: number;
+  kirkLaoPercent: number;
   treySplitPercent: number;
   kirkSplitPercent: number;
   earnestMoney: number;
@@ -496,7 +497,8 @@ interface AppPreferences {
   agent2Name: string;
   defaultTreySplit: number;
   defaultKirkSplit: number;
-  defaultLaoCutPercent: number;
+  defaultTreyLaoPercent: number;
+  defaultKirkLaoPercent: number;
   defaultGrossCommissionPercent: number;
 }
 
@@ -506,7 +508,8 @@ const DEFAULT_PREFERENCES: AppPreferences = {
   agent2Name: 'Kirk',
   defaultTreySplit: 60,
   defaultKirkSplit: 40,
-  defaultLaoCutPercent: 35,
+  defaultTreyLaoPercent: 35,
+  defaultKirkLaoPercent: 30,
   defaultGrossCommissionPercent: 3,
 };
 
@@ -527,7 +530,8 @@ function getMissingTransactionFields(t: Transaction): { key: string; label: stri
   if (!t.coeDate) missing.push({ key: 'coeDate', label: 'COE Date' });
   if (!t.price) missing.push({ key: 'price', label: 'Price' });
   if (t.grossCommissionPercent === undefined || t.grossCommissionPercent === null) missing.push({ key: 'grossCommissionPercent', label: 'Gross Comm %' });
-  if (t.laoCutPercent === undefined || t.laoCutPercent === null) missing.push({ key: 'laoCutPercent', label: 'LAO Cut %' });
+  if (t.treyLaoPercent === undefined || t.treyLaoPercent === null) missing.push({ key: 'treyLaoPercent', label: 'Trey LAO %' });
+  if (t.kirkLaoPercent === undefined || t.kirkLaoPercent === null) missing.push({ key: 'kirkLaoPercent', label: 'Kirk LAO %' });
   if (t.treySplitPercent === undefined || t.treySplitPercent === null) missing.push({ key: 'treySplitPercent', label: 'Trey Split %' });
   if (t.kirkSplitPercent === undefined || t.kirkSplitPercent === null) missing.push({ key: 'kirkSplitPercent', label: 'Kirk Split %' });
   return missing;
@@ -559,19 +563,28 @@ function getLeadSummary(lead: Lead): string {
 function useCommissionMath(transaction: Transaction) {
   return useMemo(() => {
     const grossCommission = transaction.price * (transaction.grossCommissionPercent / 100);
-    const laoCut = grossCommission * (transaction.laoCutPercent / 100);
-    const netCommission = grossCommission - laoCut;
-    const treyTake = netCommission * (transaction.treySplitPercent / 100);
-    const kirkTake = netCommission * (transaction.kirkSplitPercent / 100);
+    const treyGrossCut = grossCommission * (transaction.treySplitPercent / 100);
+    const kirkGrossCut = grossCommission * (transaction.kirkSplitPercent / 100);
+    const laoFromTrey = treyGrossCut * (transaction.treyLaoPercent / 100);
+    const laoFromKirk = kirkGrossCut * (transaction.kirkLaoPercent / 100);
+    const treyNet = treyGrossCut - laoFromTrey;
+    const kirkNet = kirkGrossCut - laoFromKirk;
+    const laoTotal = laoFromTrey + laoFromKirk;
 
     return {
       grossCommission,
-      laoCut,
-      netCommission,
-      treyTake,
-      kirkTake
+      treyGrossCut,
+      kirkGrossCut,
+      laoFromTrey,
+      laoFromKirk,
+      treyNet,
+      kirkNet,
+      laoTotal,
+      // legacy aliases kept for any remaining display references
+      treyTake: treyNet,
+      kirkTake: kirkNet,
     };
-  }, [transaction.price, transaction.grossCommissionPercent, transaction.laoCutPercent, transaction.treySplitPercent, transaction.kirkSplitPercent]);
+  }, [transaction.price, transaction.grossCommissionPercent, transaction.treyLaoPercent, transaction.kirkLaoPercent, transaction.treySplitPercent, transaction.kirkSplitPercent]);
 }
 
 // --- Components ---
@@ -1153,7 +1166,8 @@ function processTransactionCSV(data: any[]): Transaction[] {
       stage,
       price: parseCurrency(row['Price:']),
       grossCommissionPercent: parsePercent(row['Base Commission']),
-      laoCutPercent: parsePercent(row['LAO Split']),
+      treyLaoPercent: parsePercent(row['Trey LAO']) || 35,
+      kirkLaoPercent: parsePercent(row['Kirk LAO']) || 30,
       treySplitPercent: parsePercent(row['Trey Commission']),
       kirkSplitPercent: parsePercent(row['Kirk Commission']),
       earnestMoney: 0,
@@ -1744,14 +1758,14 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
     // Projected Commission
     const projectedTrey = activeDeals.reduce((sum, t) => {
       const gross = t.price * (t.grossCommissionPercent / 100);
-      const net = gross - (gross * (t.laoCutPercent / 100));
-      return sum + (net * (t.treySplitPercent / 100));
+      const treyGross = gross * (t.treySplitPercent / 100);
+      return sum + treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
     }, 0);
 
     const projectedKirk = activeDeals.reduce((sum, t) => {
       const gross = t.price * (t.grossCommissionPercent / 100);
-      const net = gross - (gross * (t.laoCutPercent / 100));
-      return sum + (net * (t.kirkSplitPercent / 100));
+      const kirkGross = gross * (t.kirkSplitPercent / 100);
+      return sum + kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
     }, 0);
     
     // Monthly Forecast
@@ -1765,8 +1779,8 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
     const monthlyGross = monthlyDeals.reduce((sum, t) => sum + (t.price * (t.grossCommissionPercent / 100)), 0);
     const monthlyTrey = monthlyDeals.reduce((sum, t) => {
       const gross = t.price * (t.grossCommissionPercent / 100);
-      const net = gross - (gross * (t.laoCutPercent / 100));
-      return sum + (net * (t.treySplitPercent / 100));
+      const treyGross = gross * (t.treySplitPercent / 100);
+      return sum + treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
     }, 0);
 
     // Pipeline Health
@@ -1945,9 +1959,10 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
         const coe = parseISO(t.coeDate);
         if (isWithinInterval(coe, { start: mStart, end: mEnd })) {
           const gross = t.price * (t.grossCommissionPercent / 100);
-          const net = gross - (gross * (t.laoCutPercent / 100));
-          trey += net * (t.treySplitPercent / 100);
-          kirk += net * (t.kirkSplitPercent / 100);
+          const treyGross = gross * (t.treySplitPercent / 100);
+          const kirkGross = gross * (t.kirkSplitPercent / 100);
+          trey += treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
+          kirk += kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
         }
       });
       months.push({ month: format(m, 'MMM'), trey: Math.round(trey), kirk: Math.round(kirk), total: Math.round(trey + kirk) });
@@ -1971,12 +1986,15 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
       .filter(t => t.stage !== 'Closed' && !t.isDeleted)
       .map(t => {
         const gross = t.price * (t.grossCommissionPercent / 100);
-        const net = gross - (gross * (t.laoCutPercent / 100));
+        const treyGross = gross * (t.treySplitPercent / 100);
+        const kirkGross = gross * (t.kirkSplitPercent / 100);
+        const laoFromTrey = treyGross * ((t.treyLaoPercent ?? 35) / 100);
+        const laoFromKirk = kirkGross * ((t.kirkLaoPercent ?? 30) / 100);
         return {
           name: t.dealName.length > 15 ? t.dealName.substring(0, 15) + '...' : t.dealName,
-          trey: Math.round(net * (t.treySplitPercent / 100)),
-          kirk: Math.round(net * (t.kirkSplitPercent / 100)),
-          lao: Math.round(gross * (t.laoCutPercent / 100)),
+          trey: Math.round(treyGross - laoFromTrey),
+          kirk: Math.round(kirkGross - laoFromKirk),
+          lao: Math.round(laoFromTrey + laoFromKirk),
         };
       })
       .sort((a, b) => (b.trey + b.kirk + b.lao) - (a.trey + a.kirk + a.lao))
@@ -3892,7 +3910,8 @@ const QuickEditTransactionDrawer = ({
   const [coeDate, setCoeDate] = useState(isBulk ? '' : (t0.coeDate || ''));
   const [projectYear, setProjectYear] = useState(isBulk ? '' : (t0.projectYear || ''));
   const [grossCommPct, setGrossCommPct] = useState(isBulk ? '' : (t0.grossCommissionPercent != null ? String(t0.grossCommissionPercent) : ''));
-  const [laoCutPct, setLaoCutPct] = useState(isBulk ? '' : (t0.laoCutPercent != null ? String(t0.laoCutPercent) : ''));
+  const [treyLaoPct, setTreyLaoPct] = useState(isBulk ? '' : (t0.treyLaoPercent != null ? String(t0.treyLaoPercent) : ''));
+  const [kirkLaoPct, setKirkLaoPct] = useState(isBulk ? '' : (t0.kirkLaoPercent != null ? String(t0.kirkLaoPercent) : ''));
   const [treySplit, setTreySplit] = useState<number>(isBulk ? 60 : (t0.treySplitPercent ?? 60));
   const [kirkSplit, setKirkSplit] = useState<number>(isBulk ? 40 : (t0.kirkSplitPercent ?? 40));
   const [splitsModified, setSplitsModified] = useState(false);
@@ -3925,7 +3944,8 @@ const QuickEditTransactionDrawer = ({
       { label: 'COE Date', hasValue: t => !!(t.coeDate), newValFilled: !!coeDate },
       { label: 'Origination Year', hasValue: t => !!(t.projectYear), newValFilled: !!projectYear },
       { label: 'Gross Commission %', hasValue: t => t.grossCommissionPercent != null, newValFilled: !!grossCommPct },
-      { label: 'LAO Cut %', hasValue: t => t.laoCutPercent != null, newValFilled: !!laoCutPct },
+      { label: 'Trey LAO %', hasValue: t => t.treyLaoPercent != null, newValFilled: !!treyLaoPct },
+      { label: 'Kirk LAO %', hasValue: t => t.kirkLaoPercent != null, newValFilled: !!kirkLaoPct },
       { label: 'Trey / Kirk Split', hasValue: t => t.treySplitPercent != null, newValFilled: splitsModified },
     ];
     return fieldChecks
@@ -3960,7 +3980,8 @@ const QuickEditTransactionDrawer = ({
       if (!isBulk || coeDate) next = { ...next, coeDate: coeDate || next.coeDate };
       if (!isBulk || projectYear) next = { ...next, projectYear: projectYear || next.projectYear };
       if (!isBulk || grossCommPct) next = { ...next, grossCommissionPercent: grossCommPct !== '' ? parseFloat(grossCommPct) : next.grossCommissionPercent };
-      if (!isBulk || laoCutPct) next = { ...next, laoCutPercent: laoCutPct !== '' ? parseFloat(laoCutPct) : next.laoCutPercent };
+      if (!isBulk || treyLaoPct) next = { ...next, treyLaoPercent: treyLaoPct !== '' ? parseFloat(treyLaoPct) : next.treyLaoPercent };
+      if (!isBulk || kirkLaoPct) next = { ...next, kirkLaoPercent: kirkLaoPct !== '' ? parseFloat(kirkLaoPct) : next.kirkLaoPercent };
       if (!isBulk || splitsModified) next = { ...next, treySplitPercent: treySplit, kirkSplitPercent: kirkSplit };
       return next;
     });
@@ -4116,11 +4137,19 @@ const QuickEditTransactionDrawer = ({
               </div>
               <div>
                 <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
-                  LAO Cut %
-                  {!isBulk && missingKeys.has('laoCutPercent') && <span className="text-amber-500">*</span>}
+                  Trey LAO %
+                  {!isBulk && missingKeys.has('treyLaoPercent') && <span className="text-amber-500">*</span>}
                 </label>
-                <input type="number" value={laoCutPct} onChange={e => setLaoCutPct(e.target.value)}
-                  className={inputClass(!isBulk && missingKeys.has('laoCutPercent'))} placeholder="0" min="0" max="100" step="0.5" />
+                <input type="number" value={treyLaoPct} onChange={e => setTreyLaoPct(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('treyLaoPercent'))} placeholder="35" min="0" max="100" step="0.5" />
+              </div>
+              <div>
+                <label className="flex items-center gap-1 text-xs font-medium text-slate-700 mb-1">
+                  Kirk LAO %
+                  {!isBulk && missingKeys.has('kirkLaoPercent') && <span className="text-amber-500">*</span>}
+                </label>
+                <input type="number" value={kirkLaoPct} onChange={e => setKirkLaoPct(e.target.value)}
+                  className={inputClass(!isBulk && missingKeys.has('kirkLaoPercent'))} placeholder="30" min="0" max="100" step="0.5" />
               </div>
 
               {/* Trey / Kirk Split Sliders */}
@@ -4502,10 +4531,10 @@ const PipelineView = ({
   };
 
   const exportCSV = () => {
-    const headers = ['Year', 'Stage', 'Deal Name', 'Buyer', 'Seller', 'Price', 'Base %', 'LAO %', 'Trey %', 'Kirk %', 'Feas Date', 'COE Date', 'PID'];
+    const headers = ['Year', 'Stage', 'Deal Name', 'Buyer', 'Seller', 'Price', 'Base %', 'Trey LAO %', 'Kirk LAO %', 'Trey %', 'Kirk %', 'Feas Date', 'COE Date', 'PID'];
     const rows = filteredData.map(d => [
       d.projectYear || '', d.stage, d.dealName, d.buyer.name, d.seller.name,
-      d.price, d.grossCommissionPercent, d.laoCutPercent, d.treySplitPercent, d.kirkSplitPercent,
+      d.price, d.grossCommissionPercent, d.treyLaoPercent, d.kirkLaoPercent, d.treySplitPercent, d.kirkSplitPercent,
       d.feasibilityDate || '', d.coeDate || '', d.pid || ''
     ]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -6959,110 +6988,139 @@ const TransactionDetailView = ({
               </div>
 
               <div className="p-6 space-y-4">
-                {/* Waterfall */}
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className={cn("text-sm", isEditing ? "text-slate-300" : "text-slate-600")}>Gross Comm</span>
-                    <div className="flex items-center gap-2">
-                      {isEditing && (
-                        <div className="flex items-center w-20 bg-slate-800 rounded px-2 py-1 border border-slate-700">
-                          <input 
-                            type="number" 
-                            value={formData.grossCommissionPercent}
-                            onChange={e => handleInputChange('grossCommissionPercent', Number(e.target.value))}
-                            className="w-full bg-transparent text-right text-xs text-white focus:outline-none"
-                          />
-                          <span className="text-slate-500 text-xs ml-1">%</span>
-                        </div>
-                      )}
-                      <span className={cn("font-mono font-medium", isEditing ? "text-emerald-400" : "text-emerald-600")}>
-                        {formatCurrency(math.grossCommission)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center">
-                    <span className={cn("text-sm", isEditing ? "text-slate-400" : "text-slate-500")}>LAO Cut (House)</span>
-                    <div className="flex items-center gap-2">
-                      {isEditing && (
-                        <div className="flex items-center w-20 bg-slate-800 rounded px-2 py-1 border border-slate-700">
-                          <input 
-                            type="number" 
-                            value={formData.laoCutPercent}
-                            onChange={e => handleInputChange('laoCutPercent', Number(e.target.value))}
-                            className="w-full bg-transparent text-right text-xs text-white focus:outline-none"
-                          />
-                          <span className="text-slate-500 text-xs ml-1">%</span>
-                        </div>
-                      )}
-                      <span className={cn("font-mono text-sm", isEditing ? "text-red-400" : "text-red-500")}>
-                        -{formatCurrency(math.laoCut)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className={cn("h-px my-2", isEditing ? "bg-slate-700" : "bg-slate-200")}></div>
-
-                  <div className="flex justify-between items-center">
-                    <span className={cn("font-medium", isEditing ? "text-white" : "text-slate-900")}>Net Commission</span>
-                    <span className={cn("font-mono font-bold", isEditing ? "text-white" : "text-slate-900")}>
-                      {formatCurrency(math.netCommission)}
+                {/* Gross Commission row */}
+                <div className="flex justify-between items-center">
+                  <span className={cn("text-sm", isEditing ? "text-slate-300" : "text-slate-600")}>Gross Comm</span>
+                  <div className="flex items-center gap-2">
+                    {isEditing && (
+                      <div className="flex items-center w-20 bg-slate-800 rounded px-2 py-1 border border-slate-700">
+                        <input
+                          type="number"
+                          value={formData.grossCommissionPercent}
+                          onChange={e => handleInputChange('grossCommissionPercent', Number(e.target.value))}
+                          className="w-full bg-transparent text-right text-xs text-white focus:outline-none"
+                        />
+                        <span className="text-slate-500 text-xs ml-1">%</span>
+                      </div>
+                    )}
+                    <span className={cn("font-mono font-medium", isEditing ? "text-emerald-400" : "text-emerald-600")}>
+                      {formatCurrency(math.grossCommission)}
                     </span>
                   </div>
                 </div>
 
-                {/* Splits */}
-                <div className={cn("mt-6 p-4 rounded-lg space-y-4", isEditing ? "bg-slate-800/50" : "bg-slate-50")}>
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className={isEditing ? "text-slate-400" : "text-slate-500"}>Trey's Split</span>
-                      <span className={isEditing ? "text-slate-400" : "text-slate-500"}>{formData.treySplitPercent}%</span>
+                {/* Agent split slider */}
+                <div className={cn("p-3 rounded-lg", isEditing ? "bg-slate-800/50" : "bg-slate-50")}>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className={isEditing ? "text-slate-400" : "text-slate-500"}>Trey / Kirk Split</span>
+                    <span className={isEditing ? "text-slate-400" : "text-slate-500"}>{formData.treySplitPercent}% / {formData.kirkSplitPercent}%</span>
+                  </div>
+                  {isEditing ? (
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      value={formData.treySplitPercent}
+                      onChange={e => handleInputChange('treySplitPercent', Number(e.target.value))}
+                      className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                  ) : (
+                    <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden flex">
+                      <div className="bg-indigo-500 h-full transition-all" style={{ width: `${formData.treySplitPercent}%` }} />
+                      <div className="bg-sky-400 h-full transition-all" style={{ width: `${formData.kirkSplitPercent}%` }} />
                     </div>
-                    {isEditing ? (
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        step="0.5"
-                        value={formData.treySplitPercent}
-                        onChange={e => handleInputChange('treySplitPercent', Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                      />
-                    ) : (
-                      <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-indigo-500 h-full" style={{ width: `${formData.treySplitPercent}%` }} />
+                  )}
+                </div>
+
+                {/* Per-agent breakdown cards */}
+                <div className="space-y-3">
+                  {/* Trey card */}
+                  <div className={cn("rounded-lg p-3", isEditing ? "bg-slate-800/40 border border-slate-700" : "bg-indigo-50 border border-indigo-100")}>
+                    <div className={cn("text-xs font-semibold uppercase tracking-wider mb-2", isEditing ? "text-indigo-400" : "text-indigo-600")}>Trey</div>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className={isEditing ? "text-slate-400" : "text-slate-500"}>Gross split ({formData.treySplitPercent}%)</span>
+                        <span className={cn("font-mono", isEditing ? "text-slate-200" : "text-slate-700")}>{formatCurrency(math.treyGrossCut)}</span>
                       </div>
-                    )}
-                    <div className={cn("text-right font-mono font-bold mt-1", isEditing ? "text-indigo-400" : "text-indigo-600")}>
-                      {formatCurrency(math.treyTake)}
+                      <div className="flex justify-between text-xs items-center">
+                        <div className="flex items-center gap-1">
+                          <span className={isEditing ? "text-slate-400" : "text-slate-500"}>LAO override</span>
+                          {isEditing && (
+                            <div className="flex items-center w-14 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700 ml-1">
+                              <input
+                                type="number"
+                                value={formData.treyLaoPercent}
+                                onChange={e => handleInputChange('treyLaoPercent', Number(e.target.value))}
+                                className="w-full bg-transparent text-right text-xs text-white focus:outline-none"
+                              />
+                              <span className="text-slate-500 text-xs ml-0.5">%</span>
+                            </div>
+                          )}
+                          {!isEditing && <span className="text-slate-400">({formData.treyLaoPercent}%)</span>}
+                        </div>
+                        <span className={cn("font-mono", isEditing ? "text-red-400" : "text-red-500")}>-{formatCurrency(math.laoFromTrey)}</span>
+                      </div>
+                      <div className={cn("h-px", isEditing ? "bg-slate-700" : "bg-indigo-200")} />
+                      <div className="flex justify-between">
+                        <span className={cn("text-xs font-semibold", isEditing ? "text-white" : "text-indigo-700")}>Net to Trey</span>
+                        <span className={cn("font-mono font-bold text-sm", isEditing ? "text-indigo-400" : "text-indigo-600")}>{formatCurrency(math.treyNet)}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className={isEditing ? "text-slate-400" : "text-slate-500"}>Kirk's Split</span>
-                      <span className={isEditing ? "text-slate-400" : "text-slate-500"}>{formData.kirkSplitPercent}%</span>
-                    </div>
-                    {isEditing ? (
-                      <input 
-                        type="range" 
-                        min="0" 
-                        max="100" 
-                        step="0.5"
-                        value={formData.kirkSplitPercent}
-                        onChange={e => handleInputChange('kirkSplitPercent', Number(e.target.value))}
-                        className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-sky-500"
-                      />
-                    ) : (
-                      <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-sky-400 h-full" style={{ width: `${formData.kirkSplitPercent}%` }} />
+                  {/* Kirk card */}
+                  <div className={cn("rounded-lg p-3", isEditing ? "bg-slate-800/40 border border-slate-700" : "bg-sky-50 border border-sky-100")}>
+                    <div className={cn("text-xs font-semibold uppercase tracking-wider mb-2", isEditing ? "text-sky-400" : "text-sky-600")}>Kirk</div>
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className={isEditing ? "text-slate-400" : "text-slate-500"}>Gross split ({formData.kirkSplitPercent}%)</span>
+                        <span className={cn("font-mono", isEditing ? "text-slate-200" : "text-slate-700")}>{formatCurrency(math.kirkGrossCut)}</span>
                       </div>
-                    )}
-                    <div className={cn("text-right font-mono font-bold mt-1", isEditing ? "text-sky-400" : "text-sky-600")}>
-                      {formatCurrency(math.kirkTake)}
+                      <div className="flex justify-between text-xs items-center">
+                        <div className="flex items-center gap-1">
+                          <span className={isEditing ? "text-slate-400" : "text-slate-500"}>LAO override</span>
+                          {isEditing && (
+                            <div className="flex items-center w-14 bg-slate-800 rounded px-1.5 py-0.5 border border-slate-700 ml-1">
+                              <input
+                                type="number"
+                                value={formData.kirkLaoPercent}
+                                onChange={e => handleInputChange('kirkLaoPercent', Number(e.target.value))}
+                                className="w-full bg-transparent text-right text-xs text-white focus:outline-none"
+                              />
+                              <span className="text-slate-500 text-xs ml-0.5">%</span>
+                            </div>
+                          )}
+                          {!isEditing && <span className="text-slate-400">({formData.kirkLaoPercent}%)</span>}
+                        </div>
+                        <span className={cn("font-mono", isEditing ? "text-red-400" : "text-red-500")}>-{formatCurrency(math.laoFromKirk)}</span>
+                      </div>
+                      <div className={cn("h-px", isEditing ? "bg-slate-700" : "bg-sky-200")} />
+                      <div className="flex justify-between">
+                        <span className={cn("text-xs font-semibold", isEditing ? "text-white" : "text-sky-700")}>Net to Kirk</span>
+                        <span className={cn("font-mono font-bold text-sm", isEditing ? "text-sky-400" : "text-sky-600")}>{formatCurrency(math.kirkNet)}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                {/* Summary row */}
+                <div className={cn("rounded-lg p-3 space-y-1.5", isEditing ? "bg-slate-700/50" : "bg-slate-100")}>
+                  <div className={cn("text-xs font-semibold uppercase tracking-wider mb-2", isEditing ? "text-slate-400" : "text-slate-500")}>Summary</div>
+                  <div className="flex justify-between text-xs">
+                    <span className={isEditing ? "text-slate-400" : "text-slate-500"}>LAO total</span>
+                    <span className={cn("font-mono font-semibold", isEditing ? "text-orange-400" : "text-orange-600")}>{formatCurrency(math.laoTotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className={isEditing ? "text-slate-400" : "text-slate-500"}>Trey net</span>
+                    <span className={cn("font-mono font-semibold", isEditing ? "text-indigo-400" : "text-indigo-600")}>{formatCurrency(math.treyNet)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className={isEditing ? "text-slate-400" : "text-slate-500"}>Kirk net</span>
+                    <span className={cn("font-mono font-semibold", isEditing ? "text-sky-400" : "text-sky-600")}>{formatCurrency(math.kirkNet)}</span>
+                  </div>
+                </div>
+
               </div>
             </div>
 
@@ -7090,9 +7148,10 @@ const NewTransactionModal = ({
     stage: 'LOI',
     price: 0,
     grossCommissionPercent: 3.0,
-    laoCutPercent: 30.0,
-    treySplitPercent: 17.5,
-    kirkSplitPercent: 82.5,
+    treyLaoPercent: 35,
+    kirkLaoPercent: 30,
+    treySplitPercent: 50,
+    kirkSplitPercent: 50,
     earnestMoney: 0,
     psaDate: '',
     feasibilityDate: '',
@@ -7582,69 +7641,89 @@ const NewTransactionModal = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">LAO Cut %</label>
-                <input 
-                  type="number" 
-                  step="0.1"
-                  value={formData.laoCutPercent} 
-                  onChange={e => handleInputChange('laoCutPercent', Number(e.target.value))}
-                  className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm"
-                />
-              </div>
-
-              <div className="h-px bg-slate-200 my-4"></div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Gross</span>
-                  <span className="font-mono font-medium text-slate-900">{formatCurrency(math.grossCommission)}</span>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Trey LAO %</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={formData.treyLaoPercent}
+                    onChange={e => handleInputChange('treyLaoPercent', Number(e.target.value))}
+                    className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm"
+                  />
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">LAO Cut</span>
-                  <span className="font-mono font-medium text-red-500">-{formatCurrency(math.laoCut)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold pt-2 border-t border-slate-200">
-                  <span className="text-slate-900">Net</span>
-                  <span className="font-mono text-slate-900">{formatCurrency(math.netCommission)}</span>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Kirk LAO %</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={formData.kirkLaoPercent}
+                    onChange={e => handleInputChange('kirkLaoPercent', Number(e.target.value))}
+                    className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm"
+                  />
                 </div>
               </div>
 
               <div className="h-px bg-slate-200 my-4"></div>
 
+              {/* Split slider — Trey drives, Kirk auto-adjusts */}
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-500">Trey ({formData.treySplitPercent}%)</span>
+                  <span className="text-slate-500">Trey / Kirk Split</span>
+                  <span className="text-slate-500">{formData.treySplitPercent}% / {formData.kirkSplitPercent}%</span>
                 </div>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="100" 
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
                   step="0.5"
                   value={formData.treySplitPercent}
                   onChange={e => handleInputChange('treySplitPercent', Number(e.target.value))}
                   className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-500 mb-1"
                 />
-                <div className="text-right font-mono font-bold text-indigo-600">
-                  {formatCurrency(math.treyTake)}
+                <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden flex mt-1">
+                  <div className="bg-indigo-500 h-full transition-all" style={{ width: `${formData.treySplitPercent}%` }} />
+                  <div className="bg-sky-400 h-full transition-all" style={{ width: `${formData.kirkSplitPercent}%` }} />
                 </div>
               </div>
 
-              <div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-500">Kirk ({formData.kirkSplitPercent}%)</span>
+              <div className="h-px bg-slate-200 my-4"></div>
+
+              {/* Per-agent summary */}
+              <div className="space-y-3">
+                <div className="bg-indigo-50 rounded-lg p-3 space-y-1.5">
+                  <div className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Trey</div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">Gross split</span>
+                    <span className="font-mono text-slate-700">{formatCurrency(math.treyGrossCut)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">LAO ({formData.treyLaoPercent}%)</span>
+                    <span className="font-mono text-red-500">-{formatCurrency(math.laoFromTrey)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-indigo-200 pt-1">
+                    <span className="text-xs text-indigo-700">Net to Trey</span>
+                    <span className="font-mono text-sm text-indigo-600">{formatCurrency(math.treyNet)}</span>
+                  </div>
                 </div>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="100" 
-                  step="0.5"
-                  value={formData.kirkSplitPercent}
-                  onChange={e => handleInputChange('kirkSplitPercent', Number(e.target.value))}
-                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-sky-500 mb-1"
-                />
-                <div className="text-right font-mono font-bold text-sky-600">
-                  {formatCurrency(math.kirkTake)}
+                <div className="bg-sky-50 rounded-lg p-3 space-y-1.5">
+                  <div className="text-xs font-semibold text-sky-600 uppercase tracking-wider">Kirk</div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">Gross split</span>
+                    <span className="font-mono text-slate-700">{formatCurrency(math.kirkGrossCut)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">LAO ({formData.kirkLaoPercent}%)</span>
+                    <span className="font-mono text-red-500">-{formatCurrency(math.laoFromKirk)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-sky-200 pt-1">
+                    <span className="text-xs text-sky-700">Net to Kirk</span>
+                    <span className="font-mono text-sm text-sky-600">{formatCurrency(math.kirkNet)}</span>
+                  </div>
+                </div>
+                <div className="flex justify-between text-xs pt-1">
+                  <span className="text-slate-500">LAO total</span>
+                  <span className="font-mono font-semibold text-orange-600">{formatCurrency(math.laoTotal)}</span>
                 </div>
               </div>
             </div>
@@ -8838,7 +8917,8 @@ const SettingsView = ({
           <div className="divide-y divide-slate-100">
             {[
               ['Gross Commission %', `${preferences.defaultGrossCommissionPercent}%`],
-              ['LAO Cut %', `${preferences.defaultLaoCutPercent}%`],
+              [`${preferences.agent1Name} LAO %`, `${preferences.defaultTreyLaoPercent}%`],
+              [`${preferences.agent2Name} LAO %`, `${preferences.defaultKirkLaoPercent}%`],
               [`${preferences.agent1Name} Split`, `${preferences.defaultTreySplit}%`],
               [`${preferences.agent2Name} Split`, `${preferences.defaultKirkSplit}%`],
             ].map(([label, value]) => (
@@ -8852,7 +8932,8 @@ const SettingsView = ({
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: 'Gross Comm %', key: 'defaultGrossCommissionPercent' as const },
-              { label: 'LAO Cut %', key: 'defaultLaoCutPercent' as const },
+              { label: `${form.agent1Name} LAO %`, key: 'defaultTreyLaoPercent' as const },
+              { label: `${form.agent2Name} LAO %`, key: 'defaultKirkLaoPercent' as const },
               { label: `${form.agent1Name} Split %`, key: 'defaultTreySplit' as const },
               { label: `${form.agent2Name} Split %`, key: 'defaultKirkSplit' as const },
             ].map(({ label, key }) => (
@@ -8982,9 +9063,10 @@ const ReportsView = ({
     let agent1Total = 0, agent2Total = 0;
     filteredTransactions.forEach(t => {
       const gross = t.price * (t.grossCommissionPercent / 100);
-      const net = gross - gross * (t.laoCutPercent / 100);
-      agent1Total += net * (t.treySplitPercent / 100);
-      agent2Total += net * (t.kirkSplitPercent / 100);
+      const treyGross = gross * (t.treySplitPercent / 100);
+      const kirkGross = gross * (t.kirkSplitPercent / 100);
+      agent1Total += treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
+      agent2Total += kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
     });
     return [
       { name: agent1, value: Math.round(agent1Total), color: '#10b981' },
@@ -9014,9 +9096,10 @@ const ReportsView = ({
         const coe = parseISO(t.coeDate);
         if (isWithinInterval(coe, { start: mStart, end: mEnd })) {
           const gross = t.price * (t.grossCommissionPercent / 100);
-          const net = gross - gross * (t.laoCutPercent / 100);
-          a1 += net * (t.treySplitPercent / 100);
-          a2 += net * (t.kirkSplitPercent / 100);
+          const treyGross = gross * (t.treySplitPercent / 100);
+          const kirkGross = gross * (t.kirkSplitPercent / 100);
+          a1 += treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
+          a2 += kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
         }
       });
       months.push({ month: format(m, 'MMM yy'), [agent1]: Math.round(a1), [agent2]: Math.round(a2) });
@@ -9071,11 +9154,13 @@ const ReportsView = ({
     const totalGross = closed.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
     const totalNet1 = closed.reduce((s, t) => {
       const g = t.price * (t.grossCommissionPercent / 100);
-      return s + (g - g * (t.laoCutPercent / 100)) * (t.treySplitPercent / 100);
+      const treyGross = g * (t.treySplitPercent / 100);
+      return s + treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
     }, 0);
     const totalNet2 = closed.reduce((s, t) => {
       const g = t.price * (t.grossCommissionPercent / 100);
-      return s + (g - g * (t.laoCutPercent / 100)) * (t.kirkSplitPercent / 100);
+      const kirkGross = g * (t.kirkSplitPercent / 100);
+      return s + kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
     }, 0);
     const activeVal = active.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
     return { totalGross, totalNet1, totalNet2, closedCount: closed.length, activeCount: active.length, activeVal };
@@ -9092,8 +9177,8 @@ const ReportsView = ({
   };
 
   const exportTransactionsCSV = () => {
-    const headers = ['Deal Name', 'Stage', 'Price', 'Gross Commission %', 'LAO Cut %', `${agent1} Split %`, `${agent2} Split %`, 'Address', 'Acreage', 'Zoning', 'COE Date', 'PSA Date', 'Feasibility Date', 'County', 'APN'];
-    const rows = [headers, ...transactions.map(t => [t.dealName, t.stage, t.price, t.grossCommissionPercent, t.laoCutPercent, t.treySplitPercent, t.kirkSplitPercent, t.address, t.acreage, t.zoning, t.coeDate, t.psaDate, t.feasibilityDate, t.county || '', t.apn || ''])];
+    const headers = ['Deal Name', 'Stage', 'Price', 'Gross Commission %', `${agent1} LAO %`, `${agent2} LAO %`, `${agent1} Split %`, `${agent2} Split %`, 'Address', 'Acreage', 'Zoning', 'COE Date', 'PSA Date', 'Feasibility Date', 'County', 'APN'];
+    const rows = [headers, ...transactions.map(t => [t.dealName, t.stage, t.price, t.grossCommissionPercent, t.treyLaoPercent, t.kirkLaoPercent, t.treySplitPercent, t.kirkSplitPercent, t.address, t.acreage, t.zoning, t.coeDate, t.psaDate, t.feasibilityDate, t.county || '', t.apn || ''])];
     downloadCSV('transactions.csv', rows.map(r => r.map(String)));
   };
 
