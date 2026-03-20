@@ -81,7 +81,8 @@ import {
   BarChart2,
   FileDown,
   Printer,
-  CheckSquare
+  CheckSquare,
+  Undo2
 } from 'lucide-react';
 import { 
   format, 
@@ -3016,6 +3017,8 @@ const LeadsView = ({
   onBatchDelete,
   onUpdateLead,
   onConvertLeadToTransaction,
+  onAddLead,
+  onUndoConversion,
 }: {
   leads: Lead[],
   onSelectLead: (id: string) => void,
@@ -3023,6 +3026,8 @@ const LeadsView = ({
   onBatchDelete: (ids: string[]) => void,
   onUpdateLead?: (l: Lead) => void,
   onConvertLeadToTransaction?: (lead: Lead) => void,
+  onAddLead?: () => void,
+  onUndoConversion?: (lead: Lead) => void,
 }) => {
   const [search, setSearch] = useState('');
   const [dragLeadId, setDragLeadId] = useState<string | null>(null);
@@ -3099,6 +3104,15 @@ const LeadsView = ({
               className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
+          {onAddLead && (
+            <button
+              onClick={onAddLead}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">New Lead</span>
+            </button>
+          )}
           <button
             onClick={exportCSV}
             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 shrink-0"
@@ -3247,17 +3261,29 @@ const LeadsView = ({
             {convertedLeads.map(lead => (
               <div
                 key={lead.id}
-                onClick={() => onSelectLead(lead.id)}
-                className="bg-white rounded-lg border border-emerald-200 p-3 cursor-pointer hover:shadow-sm transition-all flex items-center gap-2"
+                className="bg-white rounded-lg border border-emerald-200 p-3 hover:shadow-sm transition-all flex items-center gap-2 group"
               >
                 <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                <div className="min-w-0">
+                <div
+                  className="min-w-0 flex-1 cursor-pointer"
+                  onClick={() => onSelectLead(lead.id)}
+                >
                   <p className="text-xs font-semibold text-slate-700 truncate">{lead.projectName}</p>
                   <p className="text-[10px] text-slate-500 truncate">
                     {lead.contactName}
                     {lead.convertedAt ? ` · Converted ${format(parseISO(lead.convertedAt), 'MMM d, yyyy')}` : ''}
                   </p>
                 </div>
+                {onUndoConversion && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onUndoConversion(lead); }}
+                    className="opacity-0 group-hover:opacity-100 shrink-0 flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 rounded transition-all border border-amber-200"
+                    title="Undo conversion — restore this lead to active"
+                  >
+                    <Undo2 className="w-3 h-3" />
+                    Undo
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -7593,6 +7619,224 @@ const NewTransactionModal = ({
   );
 };
 
+// --- New Lead Modal ---
+const NewLeadModal = ({
+  isOpen,
+  onClose,
+  onSave,
+}: {
+  isOpen: boolean,
+  onClose: () => void,
+  onSave: (lead: Lead) => void,
+}) => {
+  const LEAD_STAGES: LeadStage[] = ['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing'];
+  const emptyForm = (): Partial<Lead> => ({
+    stage: 'Buyer Lead',
+    projectName: '',
+    contactName: '',
+    contactRole: '',
+    contactPhone: '',
+    contactEmail: '',
+    description: '',
+    estValue: undefined,
+    assignedAgent: '',
+    lastSpokeDate: '',
+    summary: '',
+  });
+  const [form, setForm] = useState<Partial<Lead>>(emptyForm());
+
+  const set = (field: keyof Lead, value: unknown) =>
+    setForm(prev => ({ ...prev, [field]: value }));
+
+  const handleClose = () => {
+    setForm(emptyForm());
+    onClose();
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.projectName?.trim()) return;
+    const newLead: Lead = {
+      id: Math.random().toString(36).substr(2, 9),
+      stage: form.stage as LeadStage,
+      projectName: form.projectName!.trim(),
+      contactName: form.contactName || '',
+      contactRole: form.contactRole || '',
+      contactPhone: form.contactPhone || '',
+      contactEmail: form.contactEmail || '',
+      description: form.description || '',
+      estValue: form.estValue,
+      assignedAgent: form.assignedAgent || '',
+      details: '',
+      lastSpokeDate: form.lastSpokeDate || '',
+      summary: form.summary || '',
+      isDeleted: false,
+      notesLog: [],
+      contacts: [],
+      reminders: [],
+    };
+    onSave(newLead);
+    handleClose();
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={handleClose}
+        >
+          <motion.div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden"
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">New Lead</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Add a new lead to the tracker</p>
+              </div>
+              <button onClick={handleClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form id="new-lead-form" onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto max-h-[70vh]">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Project Name <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    required
+                    value={form.projectName || ''}
+                    onChange={e => set('projectName', e.target.value)}
+                    placeholder="e.g. Smith Industrial Parcel"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Lead Stage</label>
+                  <select
+                    value={form.stage || 'Buyer Lead'}
+                    onChange={e => set('stage', e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {LEAD_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Name</label>
+                  <input
+                    type="text"
+                    value={form.contactName || ''}
+                    onChange={e => set('contactName', e.target.value)}
+                    placeholder="Contact name"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Contact Role</label>
+                  <input
+                    type="text"
+                    value={form.contactRole || ''}
+                    onChange={e => set('contactRole', e.target.value)}
+                    placeholder="e.g. Owner, Broker"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={form.contactPhone || ''}
+                    onChange={e => set('contactPhone', e.target.value)}
+                    placeholder="(555) 000-0000"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={form.contactEmail || ''}
+                    onChange={e => set('contactEmail', e.target.value)}
+                    placeholder="contact@email.com"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Est. Value ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={form.estValue ?? ''}
+                    onChange={e => set('estValue', e.target.value ? Number(e.target.value) : undefined)}
+                    placeholder="0"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Assigned Agent</label>
+                  <input
+                    type="text"
+                    value={form.assignedAgent || ''}
+                    onChange={e => set('assignedAgent', e.target.value)}
+                    placeholder="e.g. Trey, Kirk"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Last Spoke Date</label>
+                  <input
+                    type="date"
+                    value={form.lastSpokeDate || ''}
+                    onChange={e => set('lastSpokeDate', e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Description</label>
+                  <textarea
+                    rows={2}
+                    value={form.description || ''}
+                    onChange={e => set('description', e.target.value)}
+                    placeholder="Brief description of the lead..."
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Summary of Discussion</label>
+                  <textarea
+                    rows={2}
+                    value={form.summary || ''}
+                    onChange={e => set('summary', e.target.value)}
+                    placeholder="Key notes from last conversation..."
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  />
+                </div>
+              </div>
+            </form>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white">
+              <button type="button" onClick={handleClose} className="px-4 py-2 min-h-[44px] text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
+              <button type="submit" form="new-lead-form" className="px-4 py-2 min-h-[44px] bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 shadow-sm transition-colors">Add Lead</button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 // --- Email Inbox View ---
 
 // Sanitize HTML for safe inline display (strips script/style/iframe tags)
@@ -10225,7 +10469,8 @@ function AppInner() {
   }, [isSidebarCollapsed]);
 
   const [isNewDealModalOpen, setIsNewDealModalOpen] = useState(false);
-  
+  const [isNewLeadModalOpen, setIsNewLeadModalOpen] = useState(false);
+
   // Delete Confirmation State
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ 
     isOpen: boolean; 
@@ -10530,6 +10775,52 @@ function AppInner() {
     fetch('/api/leads/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newLeads) })
       .then(() => showToast(`Imported ${newLeads.length} lead${newLeads.length !== 1 ? 's' : ''}.`, 'success'))
       .catch(() => showToast('Import saved locally but failed to sync to server.', 'error'));
+  };
+
+  const handleCreateLead = (newLead: Lead) => {
+    setLeads(prev => [newLead, ...prev]);
+    setIsNewLeadModalOpen(false);
+    logAction({
+      type: 'lead_create',
+      entityId: newLead.id,
+      entityType: 'lead',
+      entityName: newLead.projectName,
+      description: `Created lead "${newLead.projectName}" at stage ${newLead.stage}`,
+    });
+    fetch('/api/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newLead) })
+      .catch(() => showToast(`Failed to save lead "${newLead.projectName}". Changes may not persist.`, 'error'));
+    showToast(`Lead "${newLead.projectName}" added.`, 'success');
+  };
+
+  const handleUndoLeadConversion = (lead: Lead) => {
+    const transactionId = lead.convertedToTransactionId;
+    if (!transactionId) return;
+
+    // Restore lead to active (clear conversion markers)
+    const restoredLead: Lead = { ...lead, convertedToTransactionId: undefined, convertedAt: undefined };
+    setLeads(prev => prev.map(l => l.id === lead.id ? restoredLead : l));
+    fetch(`/api/leads/${lead.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(restoredLead) })
+      .catch(console.error);
+
+    // Soft-delete the transaction that was created from this lead
+    setTransactions(prev => prev.map(t =>
+      t.id === transactionId ? { ...t, isDeleted: true, deletedAt: new Date().toISOString() } : t
+    ));
+    fetch(`/api/transactions/${transactionId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isDeleted: true, deletedAt: new Date().toISOString() }),
+    }).catch(console.error);
+
+    logAction({
+      type: 'lead_update',
+      entityId: lead.id,
+      entityType: 'lead',
+      entityName: lead.projectName,
+      description: `Undid conversion of lead "${lead.projectName}" — restored to active leads`,
+    });
+
+    showToast(`Conversion undone. "${lead.projectName}" is back in active leads.`, 'success');
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -11013,6 +11304,8 @@ function AppInner() {
                 onBatchDelete={handleBatchDeleteLeads}
                 onUpdateLead={handleUpdateLead}
                 onConvertLeadToTransaction={handleConvertLeadToTransaction}
+                onAddLead={() => setIsNewLeadModalOpen(true)}
+                onUndoConversion={handleUndoLeadConversion}
               />
             </motion.div>
           )}
@@ -11163,6 +11456,12 @@ function AppInner() {
         onClose={() => setIsNewDealModalOpen(false)}
         onSave={handleCreateTransaction}
         contacts={allContacts}
+      />
+
+      <NewLeadModal
+        isOpen={isNewLeadModalOpen}
+        onClose={() => setIsNewLeadModalOpen(false)}
+        onSave={handleCreateLead}
       />
 
       <ConfirmDialog 
