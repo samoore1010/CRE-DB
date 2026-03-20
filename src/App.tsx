@@ -265,6 +265,7 @@ function generateICS(events: { title: string, start: Date, description?: string 
 // --- Types & Interfaces ---
 
 type PipelineStage = 'LOI' | 'Contract' | 'Escrow' | 'Closed' | 'Option';
+type LeadStage = 'Buyer Lead' | 'Listing Lead' | 'Listing' | 'Dead Lead' | 'Dead Listing';
 
 interface Party {
   id?: string;
@@ -400,7 +401,7 @@ interface StandaloneContact {
 
 interface Lead {
   id: string;
-  type: string;
+  stage: LeadStage;
   projectName: string;
   contactName: string;
   contactRole?: string;
@@ -419,6 +420,7 @@ interface Lead {
   contacts?: LeadContact[];
   reminders?: LeadReminder[];
   convertedToTransactionId?: string;
+  convertedAt?: string;
 }
 
 type ActionType =
@@ -1219,9 +1221,23 @@ function processLeadCSV(data: any[]): Lead[] {
         return '';
       } catch (e) { return ''; }
     };
+    const rawType = row['Lead Type']?.trim() || '';
+    // Map legacy CSV lead type values to new LeadStage
+    const legacyTypeMap: Record<string, LeadStage> = {
+      'True Lead': 'Buyer Lead',
+      'Live Contract': 'Listing',
+      'Converted Lead (Escrow)': 'Buyer Lead',
+      'Dead Deal': 'Dead Lead',
+      'Buyer Lead': 'Buyer Lead',
+      'Listing Lead': 'Listing Lead',
+      'Listing': 'Listing',
+      'Dead Lead': 'Dead Lead',
+      'Dead Listing': 'Dead Listing',
+    };
+    const mappedStage: LeadStage = legacyTypeMap[rawType] || 'Buyer Lead';
     const l: Lead = {
       id: Math.random().toString(36).substr(2, 9),
-      type: row['Lead Type']?.trim() || 'True Lead',
+      stage: mappedStage,
       projectName: row['Project Name'] || `Lead ${index + 1}`,
       contactName: row['Contact'] || '',
       contactRole: row['Contact Role'] || '',
@@ -1512,7 +1528,7 @@ const DataManagementView = ({
                                                 className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                                             />
                                         </td>
-                                        <td className="px-3 py-2">{l.type}</td>
+                                        <td className="px-3 py-2">{l.stage}</td>
                                         <td className="px-3 py-2 font-medium">{l.projectName}</td>
                                         <td className="px-3 py-2">{l.contactName}</td>
                                         <td className="px-3 py-2 truncate max-w-[200px]">{l.details}</td>
@@ -1674,9 +1690,9 @@ const DataManagementView = ({
                   const cols = ['Lead Type','Project Name','Contact','Details','Last Spoke','Summary of Discussion'];
                   const letters = ['A','B','C','D','E','F'];
                   const rows = [
-                    ['True Lead','Greenfield Acres','Tom Wilson','40 acres irrigated farmland','3/1/2026','Referred by Kirk — motivated seller, wants to close by Q3'],
-                    ['Live Contract','Sunny Valley Farms','Sarah Chen','120 acres raw land','2/15/2026','In negotiations, waiting on final survey results'],
-                    ['Converted Lead (Escrow)','Riverside Parcel','Mike Torres','65 acres, mixed zoning','1/20/2026','In escrow — follow up on title clearance next week'],
+                    ['Buyer Lead','Greenfield Acres','Tom Wilson','40 acres irrigated farmland','3/1/2026','Referred by Kirk — motivated buyer, wants to close by Q3'],
+                    ['Listing Lead','Sunny Valley Farms','Sarah Chen','120 acres raw land','2/15/2026','Owner interested in listing — waiting on survey results'],
+                    ['Listing','Riverside Parcel','Mike Torres','65 acres, mixed zoning','1/20/2026','Active listing — follow up on marketing plan next week'],
                   ];
                   return (
                     <div className="space-y-2">
@@ -1711,7 +1727,7 @@ const DataManagementView = ({
                         </table>
                       </div>
                       <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Lead Type must be one of: <span className="font-semibold">True Lead, Live Contract, Converted Lead (Escrow), Dead Deal</span>. Dates can be in any standard format (e.g. 3/1/2026).</p>
+                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Lead Type must be one of: <span className="font-semibold">Buyer Lead, Listing Lead, Listing, Dead Lead, Dead Listing</span>. Legacy values (True Lead, Live Contract, Dead Deal) are auto-mapped. Dates can be in any standard format (e.g. 3/1/2026).</p>
                       </div>
                     </div>
                   );
@@ -1793,10 +1809,10 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
 
     // Lead Health
     const leadHealth = {
-        'Converted Lead': activeLeads.filter(l => l.type === 'Converted Lead (Escrow)').length,
-        'Live Contract': activeLeads.filter(l => l.type === 'Live Contract').length,
-        'True Lead': activeLeads.filter(l => l.type === 'True Lead').length,
-        'Dead Deal': activeLeads.filter(l => l.type === 'Dead Deal').length,
+        'Buyer Lead': activeLeads.filter(l => l.stage === 'Buyer Lead').length,
+        'Listing Lead': activeLeads.filter(l => l.stage === 'Listing Lead').length,
+        'Listing': activeLeads.filter(l => l.stage === 'Listing').length,
+        'Dead Lead': activeLeads.filter(l => l.stage === 'Dead Lead' || l.stage === 'Dead Listing').length,
     };
 
     // Action Items (AI Insights)
@@ -2005,10 +2021,10 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
   const leadFunnel = useMemo(() => {
     const allLeads = leads.filter(l => !l.isDeleted);
     return [
-      { name: 'True Lead', count: allLeads.filter(l => l.type === 'True Lead').length, color: '#f59e0b' },
-      { name: 'Live Contract', count: allLeads.filter(l => l.type === 'Live Contract').length, color: '#6366f1' },
-      { name: 'Converted', count: allLeads.filter(l => l.type === 'Converted Lead (Escrow)').length, color: '#10b981' },
-      { name: 'Dead', count: allLeads.filter(l => l.type === 'Dead Deal').length, color: '#94a3b8' },
+      { name: 'Buyer Lead', count: allLeads.filter(l => l.stage === 'Buyer Lead').length, color: '#3b82f6' },
+      { name: 'Listing Lead', count: allLeads.filter(l => l.stage === 'Listing Lead').length, color: '#f59e0b' },
+      { name: 'Listing', count: allLeads.filter(l => l.stage === 'Listing').length, color: '#8b5cf6' },
+      { name: 'Dead', count: allLeads.filter(l => l.stage === 'Dead Lead' || l.stage === 'Dead Listing').length, color: '#94a3b8' },
     ];
   }, [leads]);
 
@@ -2195,12 +2211,12 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
                             <div
                                 className={cn(
                                     "h-full rounded-full",
-                                    stage === 'Converted Lead' ? "bg-emerald-500" : stage === 'Live Contract' ? "bg-indigo-500" : stage === 'True Lead' ? "bg-amber-500" : "bg-slate-400"
+                                    stage === 'Listing' ? "bg-purple-500" : stage === 'Listing Lead' ? "bg-amber-500" : stage === 'Buyer Lead' ? "bg-blue-500" : "bg-slate-400"
                                 )}
-                                style={{ width: `${((count as number) / metrics.leadCount) * 100}%` }}
+                                style={{ width: `${metrics.leadCount > 0 ? ((count as number) / metrics.leadCount) * 100 : 0}%` }}
                             />
                         </div>
-                        <span className="text-[10px] text-slate-400 mt-1 truncate">{stage === 'Converted Lead' ? 'Converted' : stage === 'Live Contract' ? 'Contract' : stage === 'True Lead' ? 'Lead' : 'Dead'}</span>
+                        <span className="text-[10px] text-slate-400 mt-1 truncate">{stage === 'Listing' ? 'Listing' : stage === 'Listing Lead' ? 'Lst Lead' : stage === 'Buyer Lead' ? 'Buyer' : 'Dead'}</span>
                     </div>
                 ))}
             </div>
@@ -2963,126 +2979,117 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
   );
 };
 
+const LEAD_STAGE_COLORS: Record<LeadStage, string> = {
+  'Buyer Lead': 'border-blue-300 bg-blue-50',
+  'Listing Lead': 'border-amber-300 bg-amber-50',
+  'Listing': 'border-purple-300 bg-purple-50',
+  'Dead Lead': 'border-slate-300 bg-slate-50',
+  'Dead Listing': 'border-red-200 bg-red-50',
+};
+const LEAD_STAGE_CARD_ACCENT: Record<LeadStage, string> = {
+  'Buyer Lead': 'border-l-blue-400',
+  'Listing Lead': 'border-l-amber-400',
+  'Listing': 'border-l-purple-400',
+  'Dead Lead': 'border-l-slate-400',
+  'Dead Listing': 'border-l-red-300',
+};
+const LEAD_STAGE_BADGE: Record<LeadStage, string> = {
+  'Buyer Lead': 'bg-blue-100 text-blue-700',
+  'Listing Lead': 'bg-amber-100 text-amber-700',
+  'Listing': 'bg-purple-100 text-purple-700',
+  'Dead Lead': 'bg-slate-100 text-slate-600',
+  'Dead Listing': 'bg-red-100 text-red-600',
+};
+// Which stages a lead can be dragged into from a given stage
+const LEAD_VALID_TRANSITIONS: Record<LeadStage, LeadStage[]> = {
+  'Buyer Lead': ['Dead Lead'],
+  'Listing Lead': ['Listing', 'Dead Listing'],
+  'Listing': ['Listing Lead', 'Dead Listing'],
+  'Dead Lead': ['Buyer Lead'],
+  'Dead Listing': ['Listing Lead', 'Listing'],
+};
+
 const LeadsView = ({
   leads,
   onSelectLead,
   onDeleteLead,
   onBatchDelete,
-  onUpdateLead
+  onUpdateLead,
+  onConvertLeadToTransaction,
 }: {
   leads: Lead[],
   onSelectLead: (id: string) => void,
   onDeleteLead: (id: string) => void,
   onBatchDelete: (ids: string[]) => void,
-  onUpdateLead?: (l: Lead) => void
+  onUpdateLead?: (l: Lead) => void,
+  onConvertLeadToTransaction?: (lead: Lead) => void,
 }) => {
   const [search, setSearch] = useState('');
-  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal']));
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
-  const [incompleteFilter, setIncompleteFilter] = useState(false);
-  const [showLeadsFilterPanel, setShowLeadsFilterPanel] = useState(false);
+  const [dragLeadId, setDragLeadId] = useState<string | null>(null);
+  const [isDragOverLOI, setIsDragOverLOI] = useState(false);
   const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
-  const [leadsPage, setLeadsPage] = useState(1);
-  // Dynamic rows: fit as many rows as the viewport can show without scrolling
-  // Mobile card ~76px tall; desktop row ~52px; subtract fixed page chrome
-  const leadsRowsPerPage = useRowsPerPage(76, 52, 390, 360);
 
-  const toggleTypeFilter = (type: string) => {
-    const newSet = new Set(selectedTypes);
-    if (newSet.has(type)) {
-      newSet.delete(type);
-    } else {
-      newSet.add(type);
+  const kanbanStages: LeadStage[] = ['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing'];
+
+  const handleDragStart = (leadId: string) => setDragLeadId(leadId);
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
+  const handleDragEnd = () => { setDragLeadId(null); setIsDragOverLOI(false); };
+
+  const handleDrop = (targetStage: LeadStage) => {
+    if (!dragLeadId || !onUpdateLead) return;
+    const lead = leads.find(l => l.id === dragLeadId);
+    if (lead && lead.stage !== targetStage && LEAD_VALID_TRANSITIONS[lead.stage]?.includes(targetStage)) {
+      onUpdateLead({ ...lead, stage: targetStage });
     }
-    setSelectedTypes(newSet);
+    setDragLeadId(null);
+    setIsDragOverLOI(false);
   };
 
-  const incompleteCount = useMemo(
-    () => leads.filter(l => getMissingLeadFields(l).length > 0).length,
-    [leads]
-  );
-
-  const filteredLeads = useMemo(() => {
-    let data = [...leads];
-
-    if (selectedTypes.size > 0) {
-      data = data.filter(l => selectedTypes.has(l.type));
-    } else {
-      data = [];
-    }
-
-    if (incompleteFilter) {
-      data = data.filter(l => getMissingLeadFields(l).length > 0);
-    }
-
-    if (search) {
-      const lowerSearch = search.toLowerCase();
-      data = data.filter(l =>
-        l.projectName.toLowerCase().includes(lowerSearch) ||
-        l.contactName.toLowerCase().includes(lowerSearch) ||
-        (l.description || '').toLowerCase().includes(lowerSearch) ||
-        getLeadSummary(l).toLowerCase().includes(lowerSearch)
-      );
-    }
-
-    if (sortConfig) {
-      data.sort((a, b) => {
-        let aValue: any = a[sortConfig.key as keyof Lead];
-        let bValue: any = b[sortConfig.key as keyof Lead];
-
-        if (sortConfig.key === 'lastSpokeDate') {
-          aValue = aValue ? new Date(aValue).getTime() : 0;
-          bValue = bValue ? new Date(bValue).getTime() : 0;
-        }
-
-        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return data;
-  }, [leads, search, sortConfig, selectedTypes, incompleteFilter]);
-
-  useEffect(() => { setLeadsPage(1); }, [search, selectedTypes, incompleteFilter, sortConfig]);
-
-  const leadsTotalPages = Math.max(1, Math.ceil(filteredLeads.length / leadsRowsPerPage));
-  const leadsSafePage = Math.min(leadsPage, leadsTotalPages);
-  const pagedLeads = filteredLeads.slice((leadsSafePage - 1) * leadsRowsPerPage, leadsSafePage * leadsRowsPerPage);
-
-  const toggleSelection = (id: string) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedIds(newSet);
+  const handleDropLOI = () => {
+    if (!dragLeadId || !onConvertLeadToTransaction) return;
+    const lead = leads.find(l => l.id === dragLeadId);
+    if (lead) onConvertLeadToTransaction(lead);
+    setDragLeadId(null);
+    setIsDragOverLOI(false);
   };
 
-  const toggleSelectAll = () => {
-    if (selectedIds.size === filteredLeads.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredLeads.map(l => l.id)));
-    }
-  };
+  const activeLeads = useMemo(() => leads.filter(l => !l.convertedToTransactionId), [leads]);
+  const convertedLeads = useMemo(() => leads.filter(l => !!l.convertedToTransactionId), [leads]);
+  const draggedLead = dragLeadId ? leads.find(l => l.id === dragLeadId) : null;
 
-  const handleSort = (key: string) => {
-    let direction: 'asc' | 'desc' = 'asc';
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
-    setSortConfig({ key, direction });
+  const filteredActiveLeads = useMemo(() => {
+    if (!search) return activeLeads;
+    const lower = search.toLowerCase();
+    return activeLeads.filter(l =>
+      l.projectName.toLowerCase().includes(lower) ||
+      l.contactName.toLowerCase().includes(lower) ||
+      (l.description || '').toLowerCase().includes(lower) ||
+      getLeadSummary(l).toLowerCase().includes(lower)
+    );
+  }, [activeLeads, search]);
+
+  const exportCSV = () => {
+    const headers = ['Lead Stage', 'Project Name', 'Contact', 'Contact Role', 'Contact Phone', 'Contact Email', 'Description', 'Est Value', 'Assigned Agent', 'Last Spoke', 'Summary of Discussion'];
+    const rows = filteredActiveLeads.map(l => [l.stage, l.projectName, l.contactName, l.contactRole || '', l.contactPhone || '', l.contactEmail || '', l.description || '', l.estValue ?? '', l.assignedAgent || '', l.lastSpokeDate || '', getLeadSummary(l) || '']);
+    const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'leads_export.csv';
+    a.click();
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Leads Tracker</h1>
-          <p className="text-slate-500">Manage and track your potential deals.</p>
+          <p className="text-slate-500">Drag leads between stages, or drop into the LOI zone to convert to a transaction.</p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto items-center">
-           <div className="relative w-full sm:w-64">
+          <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
@@ -3093,17 +3100,7 @@ const LeadsView = ({
             />
           </div>
           <button
-            onClick={() => {
-              const headers = ['Lead Type', 'Project Name', 'Contact', 'Contact Role', 'Contact Phone', 'Contact Email', 'Description', 'Est Value', 'Assigned Agent', 'Last Spoke', 'Details', 'Summary of Discussion'];
-              const rows = filteredLeads.map(l => [l.type, l.projectName, l.contactName, l.contactRole || '', l.contactPhone || '', l.contactEmail || '', l.description || '', l.estValue ?? '', l.assignedAgent || '', l.lastSpokeDate || '', l.details || '', l.summary || '']);
-              const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-              const blob = new Blob([csv], { type: 'text/csv' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = 'leads_export.csv';
-              a.click();
-            }}
+            onClick={exportCSV}
             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 shrink-0"
             title="Export CSV"
           >
@@ -3112,304 +3109,158 @@ const LeadsView = ({
         </div>
       </div>
 
-      {/* Filters — collapsible panel */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Filter toggle button */}
-        <button
-          onClick={() => setShowLeadsFilterPanel(p => !p)}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-all",
-            showLeadsFilterPanel
-              ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-              : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
-          )}
-        >
-          <Filter className="w-3.5 h-3.5" />
-          Filters
-          {(() => {
-            const hiddenTypes = (['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const).filter(t => !selectedTypes.has(t)).length;
-            const incActive = incompleteFilter ? 1 : 0;
-            const total = hiddenTypes + incActive;
-            return total > 0 ? (
-              <span className={cn(
-                "ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold leading-none",
-                showLeadsFilterPanel ? "bg-white text-indigo-600" : "bg-indigo-600 text-white"
-              )}>{total}</span>
-            ) : null;
-          })()}
-          <ChevronDown className={cn("w-3 h-3 transition-transform", showLeadsFilterPanel && "rotate-180")} />
-        </button>
-
-        {/* Collapsed: active filter summary chips */}
-        {!showLeadsFilterPanel && (
-          <>
-            {incompleteFilter && (
-              <span className="flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-medium">
-                <AlertTriangle className="w-3 h-3" /> Incomplete only
-                <button onClick={() => setIncompleteFilter(false)} className="hover:text-amber-900 ml-0.5">×</button>
-              </span>
-            )}
-            {(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const)
-              .filter(t => !selectedTypes.has(t))
-              .map(t => (
-                <span key={t} className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 border border-slate-200 rounded-full text-xs font-medium line-through">
-                  {t}
-                </span>
-              ))
-            }
-          </>
+      {/* LOI Conversion Drop Zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setIsDragOverLOI(true); }}
+        onDragLeave={() => setIsDragOverLOI(false)}
+        onDrop={handleDropLOI}
+        className={cn(
+          "rounded-xl border-2 border-dashed p-4 flex items-center gap-3 transition-all select-none",
+          isDragOverLOI
+            ? "border-indigo-500 bg-indigo-100 shadow-lg scale-[1.01]"
+            : dragLeadId
+            ? "border-indigo-300 bg-indigo-50 animate-pulse"
+            : "border-slate-200 bg-slate-50"
         )}
-
-        {/* Incomplete button (shown in expanded state) */}
-        {incompleteCount > 0 && showLeadsFilterPanel && (
-          <button
-            onClick={() => setIncompleteFilter(!incompleteFilter)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all border",
-              incompleteFilter
-                ? "bg-amber-500 text-white border-amber-500 shadow-sm"
-                : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
-            )}
-          >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            {incompleteCount} Incomplete
-          </button>
+      >
+        <div className={cn(
+          "w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors",
+          isDragOverLOI ? "bg-indigo-600" : "bg-indigo-100"
+        )}>
+          <GitMerge className={cn("w-5 h-5", isDragOverLOI ? "text-white" : "text-indigo-500")} />
+        </div>
+        <div>
+          <p className={cn("font-semibold text-sm", isDragOverLOI ? "text-indigo-700" : "text-slate-600")}>
+            {isDragOverLOI ? "Release to Convert → Pipeline (LOI)" : "Drop Here to Convert Lead → Pipeline (LOI)"}
+          </p>
+          <p className="text-xs text-slate-400">Creates a new transaction at LOI stage and marks the lead as converted.</p>
+        </div>
+        {!dragLeadId && onConvertLeadToTransaction && (
+          <div className="ml-auto text-[10px] text-slate-400 hidden sm:block">Drag any lead card here</div>
         )}
       </div>
 
-      {/* Expandable filter panel */}
-      {showLeadsFilterPanel && (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
-          <div>
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Lead Type</p>
-            <div className="flex flex-wrap gap-2">
-              {(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'] as const).map(type => (
-                <button
-                  key={type}
-                  onClick={() => toggleTypeFilter(type)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-full text-xs font-semibold transition-all border",
-                    selectedTypes.has(type)
-                      ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-100"
-                  )}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <button
-              onClick={() => {
-                setSelectedTypes(new Set(['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal']));
-                setIncompleteFilter(false);
-              }}
-              className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2 transition-colors"
+      {/* Kanban Board */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        {kanbanStages.map(stage => {
+          const stageLeads = filteredActiveLeads.filter(l => l.stage === stage);
+          const isValidDragTarget = !!(draggedLead && draggedLead.stage !== stage && LEAD_VALID_TRANSITIONS[draggedLead.stage]?.includes(stage));
+          return (
+            <div
+              key={stage}
+              className={cn(
+                "rounded-xl border-2 border-dashed p-3 min-h-[200px] transition-colors",
+                LEAD_STAGE_COLORS[stage],
+                isValidDragTarget ? "border-indigo-400 shadow-md" : ""
+              )}
+              onDragOver={handleDragOver}
+              onDrop={() => handleDrop(stage)}
             >
-              Reset filters
-            </button>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          {/* Mobile card list */}
-          <div className="block sm:hidden divide-y divide-slate-100">
-            {pagedLeads.length === 0 && (
-              <div className="p-8 text-center text-slate-500 text-sm">No leads found.</div>
-            )}
-            <motion.div
-              variants={listContainerVariants}
-              initial="hidden"
-              animate="visible"
-              key={pagedLeads.map(l => l.id).join(',')}
-            >
-            {pagedLeads.map((lead) => {
-              const missingFields = getMissingLeadFields(lead);
-              return (
-                <motion.div
-                  key={lead.id}
-                  variants={listItemVariants}
-                  onClick={() => onSelectLead(lead.id)}
-                  className={cn(
-                    "p-4 hover:bg-slate-50 cursor-pointer transition-colors",
-                    missingFields.length > 0 && "border-l-2 border-l-amber-300"
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <span className="font-semibold text-slate-900">{lead.projectName}</span>
-                    <span className={cn(
-                      "px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0",
-                      lead.type.includes('Converted') ? "bg-emerald-100 text-emerald-700" :
-                      lead.type.includes('Live') ? "bg-blue-100 text-blue-700" :
-                      lead.type.includes('True') ? "bg-amber-100 text-amber-700" :
-                      "bg-slate-100 text-slate-600"
-                    )}>
-                      {lead.type}
-                    </span>
-                  </div>
-                  <div className="text-sm text-slate-600 mb-1">{lead.contactName}</div>
-                  <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-                    {(() => {
-                      if (!lead.lastSpokeDate) return <span>Never contacted</span>;
-                      const days = Math.floor((new Date().getTime() - parseISO(lead.lastSpokeDate).getTime()) / 86400000);
-                      const label = days === 0 ? 'Today' : days === 1 ? '1d ago' : `${days}d ago`;
-                      const color = days <= 7 ? 'bg-emerald-50 text-emerald-700' : days <= 30 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
-                      return <span className={cn("px-2 py-0.5 rounded-full text-xs font-semibold", color)}>{label}</span>;
-                    })()}
-                    {lead.details && <span className="truncate max-w-[200px]">{lead.details}</span>}
-                  </div>
-                </motion.div>
-              );
-            })}
-            </motion.div>
-            {leadsTotalPages > 1 && (
-              <div className="border-t border-slate-200 px-4 py-2">
-                <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
+              <div className="flex items-center justify-between mb-3">
+                <span className={cn("px-2 py-1 rounded-full text-xs font-bold", LEAD_STAGE_BADGE[stage])}>{stage}</span>
+                <span className="text-[10px] font-bold text-slate-400">{stageLeads.length}</span>
               </div>
-            )}
-          </div>
-          {/* Desktop table */}
-          <div className="hidden sm:block overflow-x-auto max-h-[70vh] overflow-y-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200 sticky top-0 z-10">
-              <tr>
-                <th className="px-4 py-3 w-10 bg-slate-50">
-                  <input
-                    type="checkbox"
-                    checked={filteredLeads.length > 0 && selectedIds.size === filteredLeads.length}
-                    onChange={toggleSelectAll}
-                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                </th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('type')}>
-                    <div className="flex items-center gap-1">Type <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('projectName')}>
-                    <div className="flex items-center gap-1">Project Name <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('contactName')}>
-                    <div className="flex items-center gap-1">Contact <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="px-4 py-3 bg-slate-50">Details</th>
-                <th className="px-4 py-3 cursor-pointer hover:text-slate-700 bg-slate-50" onClick={() => handleSort('lastSpokeDate')}>
-                    <div className="flex items-center gap-1">Contact Age <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="px-4 py-3 bg-slate-50">Summary</th>
-                <th className="px-4 py-3 w-10 bg-slate-50"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {pagedLeads.map((lead) => {
-                const missingFields = getMissingLeadFields(lead);
-                return (
-                    <tr
+              <motion.div
+                className="space-y-2"
+                variants={listContainerVariants}
+                initial="hidden"
+                animate="visible"
+                key={stageLeads.map(l => l.id).join(',')}
+              >
+                {stageLeads.map(lead => {
+                  const daysSince = lead.lastSpokeDate
+                    ? Math.floor((Date.now() - parseISO(lead.lastSpokeDate).getTime()) / 86400000)
+                    : null;
+                  const contactAgeColor = daysSince === null
+                    ? 'text-slate-400'
+                    : daysSince <= 7 ? 'text-emerald-600'
+                    : daysSince <= 30 ? 'text-amber-600'
+                    : 'text-red-600';
+                  return (
+                    <motion.div
+                      variants={listItemVariants}
                       key={lead.id}
-                      onClick={(e) => {
-                        if ((e.target as HTMLElement).closest('input[type="checkbox"]') || (e.target as HTMLElement).closest('button')) return;
-                        onSelectLead(lead.id);
-                      }}
+                      draggable
+                      onDragStart={() => handleDragStart(lead.id)}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => onSelectLead(lead.id)}
                       className={cn(
-                        "hover:bg-slate-50 transition-colors group cursor-pointer",
-                        selectedIds.has(lead.id) && "bg-indigo-50/50",
-                        missingFields.length > 0 && "border-l-2 border-l-amber-300"
+                        "bg-white rounded-lg border border-slate-200 border-l-4 p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-all group",
+                        LEAD_STAGE_CARD_ACCENT[lead.stage]
                       )}
                     >
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(lead.id)}
-                          onChange={() => toggleSelection(lead.id)}
-                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={cn(
-                          "px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap",
-                          lead.type.includes('Converted') ? "bg-emerald-100 text-emerald-700" :
-                          lead.type.includes('Live') ? "bg-blue-100 text-blue-700" :
-                          lead.type.includes('True') ? "bg-amber-100 text-amber-700" :
-                          "bg-slate-100 text-slate-600"
-                        )}>
-                          {lead.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{lead.projectName}</td>
-                      <td className="px-4 py-3 text-slate-600">{lead.contactName}</td>
-                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate" title={lead.description || ''}>{lead.description || ''}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {(() => {
-                          if (!lead.lastSpokeDate) return <span className="text-slate-400 text-xs">Never</span>;
-                          const days = Math.floor((new Date().getTime() - parseISO(lead.lastSpokeDate).getTime()) / 86400000);
-                          const label = days === 0 ? 'Today' : days === 1 ? '1d ago' : `${days}d ago`;
-                          const color = days <= 7 ? 'bg-emerald-50 text-emerald-700' : days <= 30 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
-                          return <span className={cn("px-2 py-1 rounded-full text-xs font-semibold", color)}>{label}</span>;
-                        })()}
-                      </td>
-                      <td className="px-4 py-3 text-slate-500 text-xs max-w-[250px] truncate" title={getLeadSummary(lead)}>{getLeadSummary(lead)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {missingFields.length > 0 && onUpdateLead && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setDrawerLeads([lead]); }}
-                              className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
-                              title={`Missing: ${missingFields.map(f => f.label).join(', ')}`}
-                            >
-                              <AlertTriangle className="w-4 h-4" />
-                            </button>
-                          )}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); onDeleteLead(lead.id); }}
-                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                            title="Delete Lead"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                      <div className="flex items-start justify-between gap-1 mb-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <GripVertical className="w-3 h-3 text-slate-300 group-hover:text-slate-500 shrink-0" />
+                          <span className="text-xs font-bold text-slate-900 leading-tight truncate">{lead.projectName}</span>
                         </div>
-                      </td>
-                    </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {leadsTotalPages > 1 && (
-            <div className="border-t border-slate-200 px-4 py-2">
-              <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDeleteLead(lead.id); }}
+                          className="opacity-0 group-hover:opacity-100 shrink-0 p-0.5 text-slate-300 hover:text-red-500 transition-colors"
+                          title="Delete Lead"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="ml-5 space-y-1">
+                        {lead.contactName && <p className="text-[10px] text-slate-600 truncate">{lead.contactName}</p>}
+                        {lead.description && <p className="text-[10px] text-slate-400 truncate" title={lead.description}>{lead.description}</p>}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {daysSince !== null ? (
+                            <span className={cn("text-[10px] font-semibold flex items-center gap-0.5", contactAgeColor)}>
+                              <Clock className="w-2.5 h-2.5" />
+                              {daysSince === 0 ? 'Today' : `${daysSince}d ago`}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">Never contacted</span>
+                          )}
+                          {lead.assignedAgent && (
+                            <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-medium">{lead.assignedAgent}</span>
+                          )}
+                          {lead.estValue ? (
+                            <span className="text-[10px] text-emerald-600 font-semibold">{formatCurrency(lead.estValue)}</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+                {stageLeads.length === 0 && (
+                  <p className="text-[11px] text-slate-400 text-center py-6 italic">
+                    {isValidDragTarget ? "Drop here" : "No leads"}
+                  </p>
+                )}
+              </motion.div>
             </div>
-          )}
-          </div>
-        {filteredLeads.length === 0 && (
-          <div className="p-12 text-center text-slate-500">
-            <p>No leads found matching your search.</p>
-          </div>
-        )}
+          );
+        })}
       </div>
 
-      {/* Floating Action Bar */}
-      {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-full shadow-2xl z-50 animate-in slide-in-from-bottom-4 duration-200">
-          <span className="text-sm font-medium pr-1">{selectedIds.size} selected</span>
-          <div className="w-px h-4 bg-slate-600" />
-          {onUpdateLead && (
-            <button
-              onClick={() => setDrawerLeads(filteredLeads.filter(l => selectedIds.has(l.id)))}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white rounded-full text-xs font-medium transition-colors"
-            >
-              <Edit3 className="w-3 h-3" />
-              Bulk Edit
-            </button>
-          )}
-          <button
-            onClick={() => { onBatchDelete(Array.from(selectedIds)); setSelectedIds(new Set()); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full text-xs font-medium transition-colors"
-          >
-            <Trash2 className="w-3 h-3" />
-            Delete
-          </button>
-          <button onClick={() => setSelectedIds(new Set())} className="p-1.5 text-slate-400 hover:text-white transition-colors ml-1">
-            <X className="w-3.5 h-3.5" />
-          </button>
+      {/* Converted Leads Section */}
+      {convertedLeads.length > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+          <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" />
+            Converted to Pipeline ({convertedLeads.length})
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {convertedLeads.map(lead => (
+              <div
+                key={lead.id}
+                onClick={() => onSelectLead(lead.id)}
+                className="bg-white rounded-lg border border-emerald-200 p-3 cursor-pointer hover:shadow-sm transition-all flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-slate-700 truncate">{lead.projectName}</p>
+                  <p className="text-[10px] text-slate-500 truncate">
+                    {lead.contactName}
+                    {lead.convertedAt ? ` · Converted ${format(parseISO(lead.convertedAt), 'MMM d, yyyy')}` : ''}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -3572,9 +3423,10 @@ const LeadDetailView = ({
     ? new Date(sortedNotes[0].date)
     : formData.lastSpokeDate ? parseISO(formData.lastSpokeDate) : null;
   const daysSince = lastContactedDate ? Math.floor((Date.now() - lastContactedDate.getTime()) / (1000 * 60 * 60 * 24)) : null;
-  const typeColor = formData.type.includes('Converted') ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-    formData.type.includes('Live') ? 'bg-blue-100 text-blue-700 border-blue-200' :
-    formData.type.includes('True') ? 'bg-amber-100 text-amber-700 border-amber-200' :
+  const typeColor = formData.stage === 'Buyer Lead' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+    formData.stage === 'Listing Lead' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+    formData.stage === 'Listing' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+    formData.stage === 'Dead Lead' || formData.stage === 'Dead Listing' ? 'bg-slate-100 text-slate-500 border-slate-200' :
     'bg-slate-100 text-slate-600 border-slate-200';
   const goToContact = (name: string, email?: string) => {
     if (!onSelectContact || !name.trim()) return;
@@ -3594,7 +3446,7 @@ const LeadDetailView = ({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h1 className="text-2xl font-bold text-slate-900 truncate">{formData.projectName || 'Untitled Lead'}</h1>
-                <span className={cn("px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0", typeColor)}>{formData.type}</span>
+                <span className={cn("px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0", typeColor)}>{formData.stage}</span>
                 {formData.assignedAgent && (
                   <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 shrink-0">{formData.assignedAgent}</span>
                 )}
@@ -3648,9 +3500,9 @@ const LeadDetailView = ({
               <FileText className="w-4 h-4" /> Lead Details
             </h3>
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Lead Type</label>
-              <select value={formData.type} onChange={e => handleInputChange('type', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                {['True Lead', 'Live Contract', 'Converted Lead (Escrow)', 'Dead Deal'].map(t => <option key={t} value={t}>{t}</option>)}
+              <label className="block text-xs font-medium text-slate-500 mb-1">Lead Stage</label>
+              <select value={formData.stage} onChange={e => handleInputChange('stage', e.target.value as LeadStage)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                {(['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing'] as LeadStage[]).map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -9141,9 +8993,9 @@ const ReportsView = ({
     const active = leads.filter(l => !l.isDeleted);
     return [
       { name: 'Total Leads', count: active.length, color: '#94a3b8' },
-      { name: 'True Lead', count: active.filter(l => l.type === 'True Lead').length, color: '#f59e0b' },
-      { name: 'Live Contract', count: active.filter(l => l.type === 'Live Contract').length, color: '#6366f1' },
-      { name: 'Converted', count: active.filter(l => l.type === 'Converted Lead (Escrow)').length, color: '#10b981' },
+      { name: 'Buyer Lead', count: active.filter(l => l.stage === 'Buyer Lead').length, color: '#3b82f6' },
+      { name: 'Listing Lead', count: active.filter(l => l.stage === 'Listing Lead').length, color: '#f59e0b' },
+      { name: 'Listing', count: active.filter(l => l.stage === 'Listing').length, color: '#8b5cf6' },
     ];
   }, [leads]);
 
@@ -9184,7 +9036,7 @@ const ReportsView = ({
 
   const exportLeadsCSV = () => {
     const headers = ['Project Name', 'Type', 'Contact Name', 'Details', 'Summary', 'Last Spoke Date'];
-    const rows = [headers, ...leads.filter(l => !l.isDeleted).map(l => [l.projectName, l.type, l.contactName, l.details, l.summary, l.lastSpokeDate])];
+    const rows = [headers, ...leads.filter(l => !l.isDeleted).map(l => [l.projectName, l.stage, l.contactName, l.details, l.summary, l.lastSpokeDate])];
     downloadCSV('leads.csv', rows.map(r => r.map(String)));
   };
 
@@ -9202,7 +9054,7 @@ const ReportsView = ({
       ...transactions.map(t => ['Transaction', t.dealName, t.stage, t.price, t.grossCommissionPercent, t.coeDate, t.address]),
       [''],
       leadHeaders,
-      ...leads.filter(l => !l.isDeleted).map(l => ['Lead', l.projectName, l.type, l.contactName, l.lastSpokeDate, '', '']),
+      ...leads.filter(l => !l.isDeleted).map(l => ['Lead', l.projectName, l.stage, l.contactName, l.lastSpokeDate, '', '']),
     ];
     downloadCSV('lao-pipeline-all.csv', rows.map(r => r.map(String)));
   };
@@ -10561,6 +10413,82 @@ function AppInner() {
       .catch(() => showToast(`Failed to create "${newDeal.dealName}". Changes may not persist.`, 'error'));
   };
 
+  const handleConvertLeadToTransaction = (lead: Lead) => {
+    const conversionDate = new Date().toISOString();
+    const newTransactionId = Math.random().toString(36).substr(2, 9);
+
+    // Build a new transaction pre-populated from the lead
+    const newTransaction: Transaction = {
+      id: newTransactionId,
+      dealName: lead.projectName || 'Converted Lead',
+      stage: 'LOI',
+      price: lead.estValue || 0,
+      grossCommissionPercent: 3,
+      treyLaoPercent: 35,
+      kirkLaoPercent: 30,
+      treySplitPercent: 50,
+      kirkSplitPercent: 50,
+      earnestMoney: 0,
+      psaDate: '',
+      feasibilityDate: '',
+      coeDate: '',
+      address: '',
+      acreage: 0,
+      zoning: '',
+      clientContact: lead.contactName || '',
+      clientPhone: lead.contactPhone || '',
+      clientEmail: lead.contactEmail || '',
+      coBroker: '',
+      titleCompany: '',
+      referralSource: '',
+      notes: '',
+      notesLog: [],
+      buyer: { role: 'Buyer', name: lead.stage === 'Buyer Lead' ? lead.contactName : '', entity: '' },
+      seller: { role: 'Seller', name: lead.stage !== 'Buyer Lead' ? lead.contactName : '', entity: '' },
+      otherParties: [],
+      // Inject conversion date annotation into timeline
+      customDates: [{
+        id: Math.random().toString(36).substr(2, 9),
+        label: `Lead Converted (from ${lead.stage}: ${lead.projectName})`,
+        date: conversionDate,
+        completed: true,
+        type: 'event',
+      }],
+      documents: [],
+      projectYear: String(new Date().getFullYear()),
+    };
+
+    // Mark the lead as converted
+    const updatedLead: Lead = {
+      ...lead,
+      convertedToTransactionId: newTransactionId,
+      convertedAt: conversionDate,
+    };
+
+    setTransactions(prev => [...prev, newTransaction]);
+    setLeads(prev => prev.map(l => l.id === lead.id ? updatedLead : l));
+
+    logAction({
+      type: 'transaction_create',
+      entityId: newTransactionId,
+      entityType: 'transaction',
+      entityName: newTransaction.dealName,
+      description: `Converted lead "${lead.projectName}" to transaction at LOI stage`,
+    });
+
+    // Persist both
+    fetch('/api/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newTransaction) })
+      .catch(() => showToast(`Failed to save transaction "${newTransaction.dealName}". Changes may not persist.`, 'error'));
+    fetch(`/api/leads/${lead.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updatedLead) })
+      .catch(console.error);
+
+    showToast(`Lead "${lead.projectName}" converted to Pipeline at LOI stage.`, 'success');
+
+    // Navigate to the new transaction
+    setSelectedDealId(newTransactionId);
+    setCurrentView('detail');
+  };
+
   const handleImportTransactions = (newTransactions: Transaction[]) => {
     setTransactions(prev => [...prev, ...newTransactions]);
     setCurrentView('pipeline');
@@ -10574,7 +10502,7 @@ function AppInner() {
       if (old) {
         const changes: string[] = [];
         if (old.projectName !== updated.projectName) changes.push(`renamed from "${old.projectName}"`);
-        if (old.type !== updated.type) changes.push(`type: ${old.type} → ${updated.type}`);
+        if (old.stage !== updated.stage) changes.push(`stage: ${old.stage} → ${updated.stage}`);
         if (old.summary !== updated.summary) changes.push(`summary updated`);
         if (old.contactName !== updated.contactName) changes.push(`contact: ${old.contactName} → ${updated.contactName}`);
         if ((old.notesLog?.length ?? 0) !== (updated.notesLog?.length ?? 0)) changes.push(`note ${(updated.notesLog?.length ?? 0) > (old.notesLog?.length ?? 0) ? 'added' : 'removed'}`);
@@ -11084,6 +11012,7 @@ function AppInner() {
                 onDeleteLead={handleDeleteLead}
                 onBatchDelete={handleBatchDeleteLeads}
                 onUpdateLead={handleUpdateLead}
+                onConvertLeadToTransaction={handleConvertLeadToTransaction}
               />
             </motion.div>
           )}
