@@ -1163,15 +1163,15 @@ function processTransactionCSV(data: any[]): Transaction[] {
     else if (rawStage === 'Escrow') stage = 'Escrow';
     else if (rawStage === 'Contract') stage = 'Contract';
     else if (rawStage === 'Option') stage = 'Option';
-    // Column C ("Seller(s):") contains "SellerEntity/BuyerEntity" — split on "/" to get each entity.
-    // Column D ("Buyer:") is actually the Seller contact person.
-    // Column E ("Buyer:2") is actually the Buyer contact person.
-    const sellerBuyerRaw = row['Seller(s):'] || '';
+    // Column C ("Seller/Buyer:") contains "SellerEntity/BuyerEntity" — split on "/" to get each entity.
+    // Column D ("Seller Contact") is the Seller contact person.
+    // Column E ("Buyer Contact") is the Buyer contact person.
+    const sellerBuyerRaw = row['Seller/Buyer:'] || '';
     const slashIdx = sellerBuyerRaw.indexOf('/');
     const sellerEntity = slashIdx >= 0 ? sellerBuyerRaw.slice(0, slashIdx).trim() : sellerBuyerRaw.trim();
     const buyerEntity  = slashIdx >= 0 ? sellerBuyerRaw.slice(slashIdx + 1).trim() : '';
-    const sellerContact = row['Buyer:'] || '';    // Column D = Seller contact
-    const buyerContact  = row['Buyer:2'] || '';   // Column E = Buyer contact
+    const sellerContact = row['Seller Contact'] || '';    // Column D = Seller contact
+    const buyerContact  = row['Buyer Contact'] || '';     // Column E = Buyer contact
     const t: Transaction = {
       id: Math.random().toString(36).substr(2, 9),
       dealName: sellerBuyerRaw || `Deal ${index + 1}`,
@@ -1649,11 +1649,11 @@ const DataManagementView = ({
                 </p>
 
                 {dataType === 'transactions' ? (() => {
-                  const cols = ['Year','Stage:','Seller(s):','Buyer:','Buyer:2','Price:','Base Commission','LAO Split','Trey Commission','Kirk Commission','Feasability End Date','Close of Escrow','PID'];
+                  const cols = ['Year','Stage:','Seller/Buyer:','Seller Contact','Buyer Contact','Price:','Base Commission','LAO Split','Trey Commission','Kirk Commission','Feasability End Date','Close of Escrow','PID'];
                   const letters = ['A','B','C','D','E','F','G','H','I','J','K','L','M'];
-                  // Column C ("Seller(s):") = "SellerEntity/BuyerEntity" — slash-separated entities
-                  // Column D ("Buyer:")  = Seller contact person
-                  // Column E ("Buyer:2") = Buyer contact person
+                  // Column C ("Seller/Buyer:") = "SellerEntity/BuyerEntity" — slash-separated entities
+                  // Column D ("Seller Contact") = Seller contact person
+                  // Column E ("Buyer Contact")  = Buyer contact person
                   const rows = [
                     ['2026','Contract','Smith Ranch/GBP','Joe Smith','Si Pitstick','$3,500,000','4.00%','20','50','50','6/15/2026','9/30/2026','AZPinal001'],
                     ['2026','Escrow','Mesa Land Co./Sunrise Farms','Jane Davis','Bob Ellis','$1,200,000','3.00%','20','50','50','','8/15/2026',''],
