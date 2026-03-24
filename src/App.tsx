@@ -1163,9 +1163,18 @@ function processTransactionCSV(data: any[]): Transaction[] {
     else if (rawStage === 'Escrow') stage = 'Escrow';
     else if (rawStage === 'Contract') stage = 'Contract';
     else if (rawStage === 'Option') stage = 'Option';
+    // Column C ("Seller(s):") contains "SellerEntity/BuyerEntity" — split on "/" to get each entity.
+    // Column D ("Buyer:") is actually the Seller contact person.
+    // Column E ("Buyer:2") is actually the Buyer contact person.
+    const sellerBuyerRaw = row['Seller(s):'] || '';
+    const slashIdx = sellerBuyerRaw.indexOf('/');
+    const sellerEntity = slashIdx >= 0 ? sellerBuyerRaw.slice(0, slashIdx).trim() : sellerBuyerRaw.trim();
+    const buyerEntity  = slashIdx >= 0 ? sellerBuyerRaw.slice(slashIdx + 1).trim() : '';
+    const sellerContact = row['Buyer:'] || '';    // Column D = Seller contact
+    const buyerContact  = row['Buyer:2'] || '';   // Column E = Buyer contact
     const t: Transaction = {
       id: Math.random().toString(36).substr(2, 9),
-      dealName: row['Seller(s):'] || `Deal ${index + 1}`,
+      dealName: sellerBuyerRaw || `Deal ${index + 1}`,
       stage,
       price: parseCurrency(row['Price:']),
       grossCommissionPercent: parsePercent(row['Base Commission']),
@@ -1188,8 +1197,8 @@ function processTransactionCSV(data: any[]): Transaction[] {
       referralSource: '',
       notes: '',
       notesLog: [],
-      buyer: { role: 'Buyer', name: row['Buyer:'] || '', entity: '' },
-      seller: { role: 'Seller', name: row['Seller(s):'] || '', entity: '' },
+      buyer: { role: 'Buyer', name: buyerContact, entity: buyerEntity },
+      seller: { role: 'Seller', name: sellerContact, entity: sellerEntity },
       otherParties: [],
       customDates: [],
       documents: [],
@@ -1199,9 +1208,6 @@ function processTransactionCSV(data: any[]): Transaction[] {
       county: '',
       isDeleted: false
     };
-    if (row['Buyer:2']) {
-      t.otherParties.push({ id: Math.random().toString(36).substr(2, 9), role: 'Co-Buyer', side: 'buyer', name: row['Buyer:2'], entity: '' });
-    }
     newTransactions.push(t);
   });
   return newTransactions;
@@ -1645,10 +1651,13 @@ const DataManagementView = ({
                 {dataType === 'transactions' ? (() => {
                   const cols = ['Year','Stage:','Seller(s):','Buyer:','Buyer:2','Price:','Base Commission','LAO Split','Trey Commission','Kirk Commission','Feasability End Date','Close of Escrow','PID'];
                   const letters = ['A','B','C','D','E','F','G','H','I','J','K','L','M'];
+                  // Column C ("Seller(s):") = "SellerEntity/BuyerEntity" — slash-separated entities
+                  // Column D ("Buyer:")  = Seller contact person
+                  // Column E ("Buyer:2") = Buyer contact person
                   const rows = [
-                    ['2026','Contract','Smith Ranch','John Buyer','','$3,500,000','4.00%','20','50','50','6/15/2026','9/30/2026','AZPinal001'],
-                    ['2026','Escrow','Mesa Land Co.','Jane Davis','Bob Ellis','$1,200,000','3.00%','20','50','50','','8/15/2026',''],
-                    ['2026','LOI','Sunrise Farms','Carlos Reyes','','$875,000','5.00%','20','50','50','','',''],
+                    ['2026','Contract','Smith Ranch/GBP','Joe Smith','Si Pitstick','$3,500,000','4.00%','20','50','50','6/15/2026','9/30/2026','AZPinal001'],
+                    ['2026','Escrow','Mesa Land Co./Sunrise Farms','Jane Davis','Bob Ellis','$1,200,000','3.00%','20','50','50','','8/15/2026',''],
+                    ['2026','LOI','Auza/GBP','Joe Auza','Si Pitstick','$875,000','5.00%','20','50','50','','',''],
                   ];
                   return (
                     <div className="space-y-2">
@@ -1683,7 +1692,7 @@ const DataManagementView = ({
                         </table>
                       </div>
                       <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Column headers must match exactly (including colons and capitalization). Stage must be one of: <span className="font-semibold">LOI, Contract, Escrow, Closed, Option</span>. Dates can be in any standard format (e.g. 6/15/2026 or 2026-06-15).</p>
+                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Column headers must match exactly (including colons and capitalization). Stage must be one of: <span className="font-semibold">LOI, Contract, Escrow, Closed, Option</span>. Dates can be in any standard format (e.g. 6/15/2026 or 2026-06-15). <span className="font-semibold">Column C</span> uses the format <span className="font-mono">SellerEntity/BuyerEntity</span> (slash-separated). <span className="font-semibold">Column D</span> is the Seller contact person. <span className="font-semibold">Column E</span> is the Buyer contact person.</p>
                       </div>
                     </div>
                   );
