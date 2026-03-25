@@ -1,4 +1,7 @@
 import express, { Request, Response } from 'express';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
@@ -100,12 +103,56 @@ try {
       value TEXT NOT NULL
     );
   `);
+
+  // --- Fix #8: Add indexed columns for efficient querying ---
+  // These extracted columns allow DB-level filtering without parsing JSON blobs.
+  // We use ALTER TABLE with try/catch because the columns may already exist.
+  const addColumnIfMissing = (table: string, col: string, type: string) => {
+    try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); } catch { /* column already exists */ }
+  };
+  addColumnIfMissing('transactions', 'stage', 'TEXT');
+  addColumnIfMissing('transactions', 'is_deleted', 'INTEGER DEFAULT 0');
+  addColumnIfMissing('leads', 'stage', 'TEXT');
+  addColumnIfMissing('leads', 'is_deleted', 'INTEGER DEFAULT 0');
+
+  // Create indexes for common query patterns
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_transactions_stage ON transactions(stage);
+    CREATE INDEX IF NOT EXISTS idx_transactions_deleted ON transactions(is_deleted);
+    CREATE INDEX IF NOT EXISTS idx_leads_stage ON leads(stage);
+    CREATE INDEX IF NOT EXISTS idx_leads_deleted ON leads(is_deleted);
+    CREATE INDEX IF NOT EXISTS idx_action_log_timestamp ON action_log(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_inbox_received ON inbox_items(received_at);
+  `);
+
+  // Backfill extracted columns from existing JSON data
+  db.exec(`
+    UPDATE transactions SET stage = json_extract(data, '$.stage'), is_deleted = COALESCE(json_extract(data, '$.isDeleted'), 0) WHERE stage IS NULL;
+    UPDATE leads SET stage = json_extract(data, '$.stage'), is_deleted = COALESCE(json_extract(data, '$.isDeleted'), 0) WHERE stage IS NULL;
+  `);
+
   console.log('SQLite initialized successfully');
 } catch (e) {
   console.error('SQLite initialization failed:', e);
 }
 
 app.use(express.json({ limit: '10mb' }));
+
+// --- CORS ---
+app.use(cors({
+  origin: IS_PROD
+    ? (process.env.APP_URL || true)
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'],
+  credentials: true,
+}));
+
+// --- DB availability guard ---
+// Returns 503 for all /api write routes (except /health and auth) when DB is unavailable,
+// instead of relying on per-route null checks that can be missed.
+function requireDb(_req: Request, res: Response, next: express.NextFunction) {
+  if (!db) { res.status(503).json({ error: 'Database unavailable. Please try again later.' }); return; }
+  next();
+}
 
 // Health check — no DB dependency
 app.get('/health', (_req: Request, res: Response) => {
@@ -117,9 +164,99 @@ if (IS_PROD) {
   app.use(express.static(path.join(__dirname, 'dist')));
 }
 
+// --- Zod Validation Schemas ---
+
+const PipelineStageSchema = z.enum(['LOI', 'Contract', 'Escrow', 'Closed', 'Option']);
+
+const PartySchema = z.object({
+  id: z.string().optional(),
+  role: z.string(),
+  side: z.enum(['buyer', 'seller', 'third-party']).optional(),
+  name: z.string(),
+  entity: z.string().optional(),
+  email: z.string().optional(),
+  phone: z.string().optional(),
+}).passthrough();
+
+const TransactionSchema = z.object({
+  id: z.string().min(1),
+  dealName: z.string(),
+  stage: PipelineStageSchema,
+  price: z.number(),
+  grossCommissionPercent: z.number(),
+  treyLaoPercent: z.number(),
+  kirkLaoPercent: z.number(),
+  treySplitPercent: z.number(),
+  kirkSplitPercent: z.number(),
+  earnestMoney: z.number(),
+  buyer: PartySchema,
+  seller: PartySchema,
+}).passthrough();
+
+const LeadStageSchema = z.enum(['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing']);
+
+const LeadSchema = z.object({
+  id: z.string().min(1),
+  stage: LeadStageSchema,
+  projectName: z.string(),
+  contactName: z.string(),
+  details: z.string(),
+  lastSpokeDate: z.string(),
+  summary: z.string(),
+  isDeleted: z.boolean(),
+}).passthrough();
+
+const ContactSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+}).passthrough();
+
+const ActionLogSchema = z.object({
+  id: z.string().min(1),
+  timestamp: z.string().min(1),
+  type: z.string(),
+  entityId: z.string(),
+  entityType: z.enum(['transaction', 'lead']),
+  entityName: z.string(),
+  description: z.string(),
+}).passthrough();
+
+const BatchIdsSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
+});
+
+// Validation middleware factory
+function validate<T>(schema: z.ZodType<T>) {
+  return (req: Request, res: Response, next: express.NextFunction) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      res.status(400).json({
+        error: 'Validation failed',
+        details: result.error.issues.map(i => ({ path: i.path.join('.'), message: i.message })),
+      });
+      return;
+    }
+    req.body = result.data;
+    next();
+  };
+}
+
+function validateArray<T>(schema: z.ZodType<T>) {
+  return validate(z.array(schema).min(1));
+}
+
+// --- Rate limiting on auth ---
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 attempts per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});
+
 // --- Auth endpoints (no auth required) ---
 
-app.post('/api/auth/login', (req: Request, res: Response) => {
+app.post('/api/auth/login', authLimiter, (req: Request, res: Response) => {
   if (!AUTH_ENABLED) { res.json({ ok: true }); return; }
   const { password } = req.body as { password?: string };
   if (password !== APP_PASSWORD) { res.status(401).json({ error: 'Invalid password' }); return; }
@@ -188,36 +325,35 @@ app.post('/api/email-inbox', (req: Request, res: Response) => {
   });
 });
 
-// Apply auth guard to all remaining /api/* routes
-app.use('/api', requireAuth);
+// Apply auth guard and DB guard to all remaining /api/* routes
+app.use('/api', requireAuth, requireDb);
 
 // --- Transactions ---
 
 app.get('/api/transactions', (_req: Request, res: Response) => {
-  if (!db) { res.json([]); return; }
   const rows = db.prepare('SELECT data FROM transactions').all() as { data: string }[];
   res.json(rows.map(r => JSON.parse(r.data)));
 });
 
-app.post('/api/transactions', (req: Request, res: Response) => {
+app.post('/api/transactions', validate(TransactionSchema), (req: Request, res: Response) => {
   const t = req.body;
-  db.prepare('INSERT OR REPLACE INTO transactions (id, data, updated_at) VALUES (?, ?, datetime(\'now\'))').run(t.id, JSON.stringify(t));
+  db.prepare('INSERT OR REPLACE INTO transactions (id, data, updated_at, stage, is_deleted) VALUES (?, ?, datetime(\'now\'), ?, ?)').run(t.id, JSON.stringify(t), t.stage, t.isDeleted ? 1 : 0);
   res.json(t);
 });
 
-app.post('/api/transactions/batch', (req: Request, res: Response) => {
+app.post('/api/transactions/batch', validateArray(TransactionSchema), (req: Request, res: Response) => {
   const items: any[] = req.body;
-  const insert = db.prepare('INSERT OR REPLACE INTO transactions (id, data, updated_at) VALUES (?, ?, datetime(\'now\'))');
+  const insert = db.prepare('INSERT OR REPLACE INTO transactions (id, data, updated_at, stage, is_deleted) VALUES (?, ?, datetime(\'now\'), ?, ?)');
   const insertMany = db.transaction((rows: any[]) => {
-    for (const t of rows) insert.run(t.id, JSON.stringify(t));
+    for (const t of rows) insert.run(t.id, JSON.stringify(t), t.stage, t.isDeleted ? 1 : 0);
   });
   insertMany(items);
   res.json({ ok: true, count: items.length });
 });
 
-app.put('/api/transactions/:id', (req: Request, res: Response) => {
+app.put('/api/transactions/:id', validate(TransactionSchema), (req: Request, res: Response) => {
   const t = req.body;
-  db.prepare('UPDATE transactions SET data = ?, updated_at = datetime(\'now\') WHERE id = ?').run(JSON.stringify(t), req.params.id);
+  db.prepare('UPDATE transactions SET data = ?, updated_at = datetime(\'now\'), stage = ?, is_deleted = ? WHERE id = ?').run(JSON.stringify(t), t.stage, t.isDeleted ? 1 : 0, req.params.id);
   res.json(t);
 });
 
@@ -228,7 +364,7 @@ app.delete('/api/transactions/:id', (req: Request, res: Response) => {
   const t = JSON.parse(row.data);
   t.isDeleted = true;
   t.deletedAt = new Date().toISOString();
-  db.prepare('UPDATE transactions SET data = ?, updated_at = datetime(\'now\') WHERE id = ?').run(JSON.stringify(t), req.params.id);
+  db.prepare('UPDATE transactions SET data = ?, updated_at = datetime(\'now\'), is_deleted = 1 WHERE id = ?').run(JSON.stringify(t), req.params.id);
   res.json(t);
 });
 
@@ -239,10 +375,10 @@ app.delete('/api/transactions/:id/permanent', (req: Request, res: Response) => {
 });
 
 // Batch soft delete
-app.post('/api/transactions/batch-delete', (req: Request, res: Response) => {
-  const { ids }: { ids: string[] } = req.body;
+app.post('/api/transactions/batch-delete', validate(BatchIdsSchema), (req: Request, res: Response) => {
+  const { ids } = req.body;
   const deletedAt = new Date().toISOString();
-  const update = db.prepare('UPDATE transactions SET data = json_set(data, \'$.isDeleted\', 1, \'$.deletedAt\', ?), updated_at = datetime(\'now\') WHERE id = ?');
+  const update = db.prepare('UPDATE transactions SET data = json_set(data, \'$.isDeleted\', 1, \'$.deletedAt\', ?), updated_at = datetime(\'now\'), is_deleted = 1 WHERE id = ?');
   const updateMany = db.transaction(() => {
     for (const id of ids) update.run(deletedAt, id);
   });
@@ -251,8 +387,8 @@ app.post('/api/transactions/batch-delete', (req: Request, res: Response) => {
 });
 
 // Batch permanent delete
-app.post('/api/transactions/batch-delete-permanent', (req: Request, res: Response) => {
-  const { ids }: { ids: string[] } = req.body;
+app.post('/api/transactions/batch-delete-permanent', validate(BatchIdsSchema), (req: Request, res: Response) => {
+  const { ids } = req.body;
   const del = db.prepare('DELETE FROM transactions WHERE id = ?');
   const deleteMany = db.transaction(() => {
     for (const id of ids) del.run(id);
@@ -264,30 +400,29 @@ app.post('/api/transactions/batch-delete-permanent', (req: Request, res: Respons
 // --- Leads ---
 
 app.get('/api/leads', (_req: Request, res: Response) => {
-  if (!db) { res.json([]); return; }
   const rows = db.prepare('SELECT data FROM leads').all() as { data: string }[];
   res.json(rows.map(r => JSON.parse(r.data)));
 });
 
-app.post('/api/leads', (req: Request, res: Response) => {
+app.post('/api/leads', validate(LeadSchema), (req: Request, res: Response) => {
   const l = req.body;
-  db.prepare('INSERT OR REPLACE INTO leads (id, data, updated_at) VALUES (?, ?, datetime(\'now\'))').run(l.id, JSON.stringify(l));
+  db.prepare('INSERT OR REPLACE INTO leads (id, data, updated_at, stage, is_deleted) VALUES (?, ?, datetime(\'now\'), ?, ?)').run(l.id, JSON.stringify(l), l.stage, l.isDeleted ? 1 : 0);
   res.json(l);
 });
 
-app.post('/api/leads/batch', (req: Request, res: Response) => {
+app.post('/api/leads/batch', validateArray(LeadSchema), (req: Request, res: Response) => {
   const items: any[] = req.body;
-  const insert = db.prepare('INSERT OR REPLACE INTO leads (id, data, updated_at) VALUES (?, ?, datetime(\'now\'))');
+  const insert = db.prepare('INSERT OR REPLACE INTO leads (id, data, updated_at, stage, is_deleted) VALUES (?, ?, datetime(\'now\'), ?, ?)');
   const insertMany = db.transaction((rows: any[]) => {
-    for (const l of rows) insert.run(l.id, JSON.stringify(l));
+    for (const l of rows) insert.run(l.id, JSON.stringify(l), l.stage, l.isDeleted ? 1 : 0);
   });
   insertMany(items);
   res.json({ ok: true, count: items.length });
 });
 
-app.put('/api/leads/:id', (req: Request, res: Response) => {
+app.put('/api/leads/:id', validate(LeadSchema), (req: Request, res: Response) => {
   const l = req.body;
-  db.prepare('UPDATE leads SET data = ?, updated_at = datetime(\'now\') WHERE id = ?').run(JSON.stringify(l), req.params.id);
+  db.prepare('UPDATE leads SET data = ?, updated_at = datetime(\'now\'), stage = ?, is_deleted = ? WHERE id = ?').run(JSON.stringify(l), l.stage, l.isDeleted ? 1 : 0, req.params.id);
   res.json(l);
 });
 
@@ -298,7 +433,7 @@ app.delete('/api/leads/:id', (req: Request, res: Response) => {
   const l = JSON.parse(row.data);
   l.isDeleted = true;
   l.deletedAt = new Date().toISOString();
-  db.prepare('UPDATE leads SET data = ?, updated_at = datetime(\'now\') WHERE id = ?').run(JSON.stringify(l), req.params.id);
+  db.prepare('UPDATE leads SET data = ?, updated_at = datetime(\'now\'), is_deleted = 1 WHERE id = ?').run(JSON.stringify(l), req.params.id);
   res.json(l);
 });
 
@@ -309,10 +444,10 @@ app.delete('/api/leads/:id/permanent', (req: Request, res: Response) => {
 });
 
 // Batch soft delete
-app.post('/api/leads/batch-delete', (req: Request, res: Response) => {
-  const { ids }: { ids: string[] } = req.body;
+app.post('/api/leads/batch-delete', validate(BatchIdsSchema), (req: Request, res: Response) => {
+  const { ids } = req.body;
   const deletedAt = new Date().toISOString();
-  const update = db.prepare('UPDATE leads SET data = json_set(data, \'$.isDeleted\', 1, \'$.deletedAt\', ?), updated_at = datetime(\'now\') WHERE id = ?');
+  const update = db.prepare('UPDATE leads SET data = json_set(data, \'$.isDeleted\', 1, \'$.deletedAt\', ?), updated_at = datetime(\'now\'), is_deleted = 1 WHERE id = ?');
   const updateMany = db.transaction(() => {
     for (const id of ids) update.run(deletedAt, id);
   });
@@ -321,8 +456,8 @@ app.post('/api/leads/batch-delete', (req: Request, res: Response) => {
 });
 
 // Batch permanent delete
-app.post('/api/leads/batch-delete-permanent', (req: Request, res: Response) => {
-  const { ids }: { ids: string[] } = req.body;
+app.post('/api/leads/batch-delete-permanent', validate(BatchIdsSchema), (req: Request, res: Response) => {
+  const { ids } = req.body;
   const del = db.prepare('DELETE FROM leads WHERE id = ?');
   const deleteMany = db.transaction(() => {
     for (const id of ids) del.run(id);
@@ -334,13 +469,11 @@ app.post('/api/leads/batch-delete-permanent', (req: Request, res: Response) => {
 // --- Action Log ---
 
 app.get('/api/action-log', (_req: Request, res: Response) => {
-  if (!db) { res.json([]); return; }
   const rows = db.prepare('SELECT data FROM action_log ORDER BY timestamp DESC LIMIT 50').all() as { data: string }[];
   res.json(rows.map(r => JSON.parse(r.data)));
 });
 
-app.post('/api/action-log', (req: Request, res: Response) => {
-  if (!db) { res.json(req.body); return; }
+app.post('/api/action-log', validate(ActionLogSchema), (req: Request, res: Response) => {
   const entry = req.body;
   db.prepare('INSERT OR REPLACE INTO action_log (id, data, timestamp) VALUES (?, ?, ?)').run(
     entry.id,
@@ -353,7 +486,6 @@ app.post('/api/action-log', (req: Request, res: Response) => {
 });
 
 app.delete('/api/action-log/:id', (req: Request, res: Response) => {
-  if (!db) { res.json({ ok: true }); return; }
   db.prepare('DELETE FROM action_log WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -445,7 +577,6 @@ function processEmailPayload(req: Request, res: Response, files: any[]) {
 
 // GET /api/inbox — fetch all non-deleted items newest first
 app.get('/api/inbox', (_req: Request, res: Response) => {
-  if (!db) { res.json([]); return; }
   const rows = db.prepare(
     "SELECT data FROM inbox_items ORDER BY received_at DESC LIMIT 500"
   ).all() as { data: string }[];
@@ -455,7 +586,6 @@ app.get('/api/inbox', (_req: Request, res: Response) => {
 
 // PUT /api/inbox/:id — update (mark read, assign, etc.)
 app.put('/api/inbox/:id', (req: Request, res: Response) => {
-  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
   const row = db.prepare('SELECT data FROM inbox_items WHERE id = ?').get(req.params.id) as { data: string } | undefined;
   if (!row) { res.status(404).json({ error: 'not found' }); return; }
   const merged = { ...JSON.parse(row.data), ...req.body };
@@ -465,7 +595,6 @@ app.put('/api/inbox/:id', (req: Request, res: Response) => {
 
 // DELETE /api/inbox/:id — soft delete
 app.delete('/api/inbox/:id', (req: Request, res: Response) => {
-  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
   const row = db.prepare('SELECT data FROM inbox_items WHERE id = ?').get(req.params.id) as { data: string } | undefined;
   if (!row) { res.status(404).json({ error: 'not found' }); return; }
   const item = { ...JSON.parse(row.data), isDeleted: true, deletedAt: new Date().toISOString() };
@@ -475,7 +604,6 @@ app.delete('/api/inbox/:id', (req: Request, res: Response) => {
 
 // GET /api/inbox/unread-count — lightweight badge endpoint
 app.get('/api/inbox/unread-count', (_req: Request, res: Response) => {
-  if (!db) { res.json({ count: 0 }); return; }
   const rows = db.prepare("SELECT data FROM inbox_items WHERE json_extract(data,'$.isDeleted') != 1").all() as { data: string }[];
   const count = rows.filter(r => {
     try { return !JSON.parse(r.data).isRead; } catch { return false; }
@@ -486,27 +614,23 @@ app.get('/api/inbox/unread-count', (_req: Request, res: Response) => {
 // --- Standalone Contacts ---
 
 app.get('/api/contacts', (_req: Request, res: Response) => {
-  if (!db) { res.json([]); return; }
   const rows = db.prepare('SELECT data FROM standalone_contacts').all() as { data: string }[];
   res.json(rows.map((r: { data: string }) => JSON.parse(r.data)));
 });
 
-app.post('/api/contacts', (req: Request, res: Response) => {
-  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+app.post('/api/contacts', validate(ContactSchema), (req: Request, res: Response) => {
   const c = req.body;
   db.prepare('INSERT OR REPLACE INTO standalone_contacts (id, data, updated_at) VALUES (?, ?, datetime(\'now\'))').run(c.id, JSON.stringify(c));
   res.json(c);
 });
 
-app.put('/api/contacts/:id', (req: Request, res: Response) => {
-  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
+app.put('/api/contacts/:id', validate(ContactSchema), (req: Request, res: Response) => {
   const c = req.body;
   db.prepare('UPDATE standalone_contacts SET data = ?, updated_at = datetime(\'now\') WHERE id = ?').run(JSON.stringify(c), req.params.id);
   res.json(c);
 });
 
 app.delete('/api/contacts/:id', (req: Request, res: Response) => {
-  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
   db.prepare('DELETE FROM standalone_contacts WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -514,7 +638,6 @@ app.delete('/api/contacts/:id', (req: Request, res: Response) => {
 // --- Preferences ---
 
 app.get('/api/preferences', (_req: Request, res: Response) => {
-  if (!db) { res.json({}); return; }
   const rows = db.prepare('SELECT key, value FROM preferences').all() as { key: string; value: string }[];
   const prefs: Record<string, unknown> = {};
   rows.forEach((r: { key: string; value: string }) => {
@@ -524,7 +647,6 @@ app.get('/api/preferences', (_req: Request, res: Response) => {
 });
 
 app.post('/api/preferences', (req: Request, res: Response) => {
-  if (!db) { res.status(503).json({ error: 'db unavailable' }); return; }
   const updates = req.body as Record<string, unknown>;
   const upsert = db.prepare('INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)');
   const upsertMany = db.transaction(() => {

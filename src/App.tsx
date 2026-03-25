@@ -1,24 +1,24 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  LayoutDashboard, 
-  List, 
-  DollarSign, 
-  Calendar as CalendarIcon, 
-  Users, 
-  Building2, 
-  ChevronRight, 
-  Search, 
-  Filter, 
-  ArrowUpRight, 
-  Briefcase, 
-  MapPin, 
-  Clock, 
-  CheckCircle2, 
-  AlertCircle, 
-  Edit3, 
-  Save, 
-  X, 
+import {
+  LayoutDashboard,
+  List,
+  DollarSign,
+  Calendar as CalendarIcon,
+  Users,
+  Building2,
+  ChevronRight,
+  Search,
+  Filter,
+  ArrowUpRight,
+  Briefcase,
+  MapPin,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  Edit3,
+  Save,
+  X,
   Menu,
   TrendingUp,
   PieChart,
@@ -84,16 +84,16 @@ import {
   CheckSquare,
   Undo2
 } from 'lucide-react';
-import { 
-  format, 
-  startOfMonth, 
-  endOfMonth, 
-  eachDayOfInterval, 
-  isSameDay, 
-  isSameMonth, 
-  addMonths, 
-  subMonths, 
-  parseISO, 
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameDay,
+  isSameMonth,
+  addMonths,
+  subMonths,
+  parseISO,
   isWithinInterval,
   addDays,
   subDays,
@@ -101,8 +101,6 @@ import {
   isBefore,
   parse
 } from 'date-fns';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { GoogleGenAI, Type } from "@google/genai";
 import Papa from 'papaparse';
 import {
@@ -121,18 +119,31 @@ import {
   Area
 } from 'recharts';
 
-// --- Utility Functions ---
+// Extracted modules
+import type {
+  PipelineStage, LeadStage, Party, Note, CustomDate, TransactionDocument,
+  InboxAttachment, InboxItem, LeadContact, LeadReminder, BulletinItem,
+  ContactSource, DerivedContact, StandaloneContact, Lead, ActionType,
+  ActionLogEntry, Transaction, ToastItem, AppPreferences
+} from './types';
+import {
+  cn, haptic, formatCurrency, formatPercent, generateICS, mkParty,
+  DEFAULT_PREFERENCES, loadPrefsFromStorage, getMissingTransactionFields,
+  getMissingLeadFields, getLeadSummary, useCommissionMath,
+  pageVariants, drawerVariants, backdropVariants, modalVariants,
+  listContainerVariants, listItemVariants,
+} from './utils';
+import { processTransactionCSV, processLeadCSV } from './csvProcessing';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+// Re-export types so any external consumers that imported from App.tsx still work
+export type {
+  PipelineStage, LeadStage, Party, Note, CustomDate, TransactionDocument,
+  InboxAttachment, InboxItem, LeadContact, LeadReminder, BulletinItem,
+  ContactSource, DerivedContact, StandaloneContact, Lead, ActionType,
+  ActionLogEntry, Transaction, ToastItem, AppPreferences
+};
 
-// Haptic feedback — triggers device vibration on supported mobile browsers
-function haptic(pattern: number | number[] = 50) {
-  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-    navigator.vibrate(pattern);
-  }
-}
+// --- Utility Functions (extracted to ./utils.ts, imported above) ---
 
 // Pull-to-refresh hook — detects downward swipe from top of page
 function usePullToRefresh(onRefresh: () => Promise<void> | void) {
@@ -189,406 +200,16 @@ function usePullToRefresh(onRefresh: () => Promise<void> | void) {
   return { isPulling, isRefreshing, pullDistance };
 }
 
-// --- Shared Animation Variants ---
+// --- Types, Utilities, Validation, Commission Math ---
+// All extracted to ./types.ts, ./utils.ts, and ./csvProcessing.ts (imported above).
 
-const pageVariants = {
-  initial: { opacity: 0, y: 14 },
-  animate: { opacity: 1, y: 0, transition: { type: 'spring' as const, damping: 28, stiffness: 320 } },
-  exit: { opacity: 0, y: -8, transition: { duration: 0.12 } },
-};
+// REMOVED: ~330 lines of inline type definitions, utility functions, validation helpers,
+// mkParty factory, DEFAULT_PREFERENCES, loadPrefsFromStorage, getMissingTransactionFields,
+// getMissingLeadFields, getLeadSummary, useCommissionMath — all now imported from modules.
 
-const drawerVariants = {
-  hidden: { x: '100%' },
-  visible: { x: 0, transition: { type: 'spring' as const, damping: 30, stiffness: 300 } },
-  exit: { x: '100%', transition: { type: 'spring' as const, damping: 36, stiffness: 380 } },
-};
-
-const backdropVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { duration: 0.15 } },
-  exit: { opacity: 0, transition: { duration: 0.15 } },
-};
-
-const modalVariants = {
-  hidden: { scale: 0.96, opacity: 0, y: 10 },
-  visible: { scale: 1, opacity: 1, y: 0, transition: { type: 'spring' as const, damping: 26, stiffness: 320 } },
-  exit: { scale: 0.96, opacity: 0, y: 8, transition: { duration: 0.12 } },
-};
-
-const listContainerVariants = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.04, delayChildren: 0.02 } },
-};
-
-const listItemVariants = {
-  hidden: { opacity: 0, y: 10 },
-  visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, damping: 22, stiffness: 300 } },
-};
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
-
-function formatPercent(value: number) {
-  return new Intl.NumberFormat('en-US', {
-    style: 'percent',
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 2,
-  }).format(value / 100);
-}
-
-function generateICS(events: { title: string, start: Date, description?: string }[]) {
-  let icsContent = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//LAO Pipeline Pro//NONSGML v1.0//EN\n";
-  
-  events.forEach(event => {
-    const formatDate = (date: Date) => {
-      return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-    };
-    
-    icsContent += "BEGIN:VEVENT\n";
-    icsContent += `UID:${Math.random().toString(36).substr(2)}@laopipeline.com\n`;
-    icsContent += `DTSTAMP:${formatDate(new Date())}\n`;
-    icsContent += `DTSTART:${formatDate(event.start)}\n`;
-    icsContent += `DTEND:${formatDate(addDays(event.start, 1))}\n`; // All day event usually, or 1 hour
-    icsContent += `SUMMARY:${event.title}\n`;
-    if (event.description) icsContent += `DESCRIPTION:${event.description}\n`;
-    icsContent += "END:VEVENT\n";
-  });
-  
-  icsContent += "END:VCALENDAR";
-  return icsContent;
-}
-
-// --- Types & Interfaces ---
-
-type PipelineStage = 'LOI' | 'Contract' | 'Escrow' | 'Closed' | 'Option';
-type LeadStage = 'Buyer Lead' | 'Listing Lead' | 'Listing' | 'Dead Lead' | 'Dead Listing';
-
-interface Party {
-  id?: string;
-  role: string;
-  side?: 'buyer' | 'seller' | 'third-party';
-  name: string;
-  entity?: string;
-  email?: string;
-  phone?: string;
-}
-
-const mkParty = (role: string, side?: Party['side']): Party => ({
-  id: Math.random().toString(36).substr(2, 9),
-  role,
-  side,
-  name: '',
-  entity: '',
-  email: '',
-  phone: '',
-});
-
-interface Note {
-  id: string;
-  content: string;
-  date: string;
-}
-
-interface CustomDate {
-  id: string;
-  label: string;
-  date: string;
-  completed: boolean;
-  type?: 'reminder' | 'event';
-}
-
-interface TransactionDocument {
-  id: string;
-  name: string;
-  type: string;
-  size: number;
-  dateUploaded: string;
-  url?: string;
-  // Set when this document was created from an email
-  sourceEmailId?: string;
-  emailBodyText?: string;
-  emailBodyHtml?: string;
-}
-
-interface InboxAttachment {
-  id: string;
-  filename: string;
-  contentType: string;
-  size: number;
-  data: string; // base64
-}
-
-interface InboxItem {
-  id: string;
-  from: string;
-  fromName: string;
-  fromRaw?: string;
-  to: string;
-  subject: string;
-  bodyText: string;
-  bodyHtml?: string;
-  receivedAt: string;
-  isRead: boolean;
-  attachments: InboxAttachment[];
-  avatarColor?: string;
-  assignedTo?: {
-    type: 'transaction' | 'lead';
-    id: string;
-    name: string;
-  } | null;
-  isDeleted?: boolean;
-  deletedAt?: string;
-}
-
-interface LeadContact {
-  id: string;
-  name: string;
-  role: string;
-  phone: string;
-  email: string;
-}
-
-interface LeadReminder {
-  id: string;
-  date: string; // ISO Date
-  description: string;
-  completed: boolean;
-}
-
-interface BulletinItem {
-  id: string;
-  text: string;
-  completed: boolean;
-  createdAt: string;
-  transactionId?: string;
-  assignedTo?: 'Trey' | 'Kirk' | 'Pete';
-}
-
-interface ContactSource {
-  type: 'transaction-buyer' | 'transaction-seller' | 'transaction-party' | 'lead' | 'standalone';
-  id: string;
-  label: string;
-  role?: string;
-  stage?: PipelineStage;
-  coeDate?: string;
-}
-
-interface DerivedContact {
-  id: string;
-  name: string;
-  entity?: string;
-  email?: string;
-  phone?: string;
-  primaryRole: string;
-  sources: ContactSource[];
-  lastActiveDate?: string;
-}
-
-interface StandaloneContact {
-  id: string;
-  name: string;
-  entity?: string;
-  email?: string;
-  phone?: string;
-  primaryRole?: string;
-  notes?: string;
-  createdAt: string;
-}
-
-interface Lead {
-  id: string;
-  stage: LeadStage;
-  projectName: string;
-  contactName: string;
-  contactRole?: string;
-  contactPhone?: string;
-  contactEmail?: string;
-  description?: string;
-  estValue?: number;
-  assignedAgent?: string;
-  details: string;
-  lastSpokeDate: string;
-  summary: string;
-  isDeleted: boolean;
-  deletedAt?: string;
-  notesLog?: Note[];
-  followUpDate?: string;
-  contacts?: LeadContact[];
-  reminders?: LeadReminder[];
-  convertedToTransactionId?: string;
-  convertedAt?: string;
-}
-
-type ActionType =
-  | 'transaction_update'
-  | 'transaction_create'
-  | 'transaction_delete'
-  | 'transaction_restore'
-  | 'lead_update'
-  | 'lead_create'
-  | 'lead_delete'
-  | 'lead_restore';
-
-interface ActionLogEntry {
-  id: string;
-  timestamp: string; // ISO
-  type: ActionType;
-  entityId: string;
-  entityType: 'transaction' | 'lead';
-  entityName: string;
-  description: string;
-  changedFields?: string[];
-  previousState?: Transaction | Lead;
-}
-
-interface Transaction {
-  id: string;
-  dealName: string;
-  stage: PipelineStage;
-  price: number;
-  grossCommissionPercent: number;
-  treyLaoPercent: number;
-  kirkLaoPercent: number;
-  treySplitPercent: number;
-  kirkSplitPercent: number;
-  earnestMoney: number;
-  psaDate: string; // ISO Date
-  feasibilityDate: string; // ISO Date
-  coeDate: string; // ISO Date
-  address: string;
-  acreage: number;
-  zoning: string;
-  clientContact: string;
-  clientPhone: string;
-  clientEmail: string;
-  coBroker: string;
-  titleCompany: string;
-  referralSource: string;
-  notes: string;
-  notesLog: Note[];
-  // New Fields
-  reminders?: LeadReminder[];
-  buyer: Party;
-  seller: Party;
-  otherParties: Party[];
-  customDates: CustomDate[];
-  documents: TransactionDocument[];
-  apn?: string;
-  county?: string;
-  projectYear?: string;
-  pid?: string;
-  isDeleted?: boolean;
-  deletedAt?: string;
-}
-
-// --- Toast & Preference Types ---
-
-interface ToastItem {
-  id: string;
-  type: 'success' | 'error' | 'info';
-  message: string;
-}
-
-interface AppPreferences {
-  teamName: string;
-  agent1Name: string;
-  agent2Name: string;
-  defaultTreySplit: number;
-  defaultKirkSplit: number;
-  defaultTreyLaoPercent: number;
-  defaultKirkLaoPercent: number;
-  defaultGrossCommissionPercent: number;
-}
-
-const DEFAULT_PREFERENCES: AppPreferences = {
-  teamName: 'LAO Team',
-  agent1Name: 'Trey',
-  agent2Name: 'Kirk',
-  defaultTreySplit: 60,
-  defaultKirkSplit: 40,
-  defaultTreyLaoPercent: 35,
-  defaultKirkLaoPercent: 30,
-  defaultGrossCommissionPercent: 3,
-};
-
-function loadPrefsFromStorage(): AppPreferences {
-  try {
-    const raw = localStorage.getItem('lao_preferences');
-    if (raw) return { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) };
-  } catch {}
-  return { ...DEFAULT_PREFERENCES };
-}
-
-// --- Validation Helpers ---
-
-function getMissingTransactionFields(t: Transaction): { key: string; label: string }[] {
-  const missing: { key: string; label: string }[] = [];
-  if (!t.buyer?.name) missing.push({ key: 'buyer.name', label: 'Buyer' });
-  if (!t.seller?.name) missing.push({ key: 'seller.name', label: 'Seller' });
-  if (!t.coeDate) missing.push({ key: 'coeDate', label: 'COE Date' });
-  if (!t.price) missing.push({ key: 'price', label: 'Price' });
-  if (t.grossCommissionPercent === undefined || t.grossCommissionPercent === null) missing.push({ key: 'grossCommissionPercent', label: 'Gross Comm %' });
-  if (t.treyLaoPercent === undefined || t.treyLaoPercent === null) missing.push({ key: 'treyLaoPercent', label: 'Trey LAO %' });
-  if (t.kirkLaoPercent === undefined || t.kirkLaoPercent === null) missing.push({ key: 'kirkLaoPercent', label: 'Kirk LAO %' });
-  if (t.treySplitPercent === undefined || t.treySplitPercent === null) missing.push({ key: 'treySplitPercent', label: 'Trey Split %' });
-  if (t.kirkSplitPercent === undefined || t.kirkSplitPercent === null) missing.push({ key: 'kirkSplitPercent', label: 'Kirk Split %' });
-  return missing;
-}
-
-function getMissingLeadFields(l: Lead): { key: string; label: string }[] {
-  const missing: { key: string; label: string }[] = [];
-  if (!l.projectName) missing.push({ key: 'projectName', label: 'Project Name' });
-  if (!l.contactName) missing.push({ key: 'contactName', label: 'Contact' });
-  if (!l.lastSpokeDate) missing.push({ key: 'lastSpokeDate', label: 'Last Spoke' });
-  return missing;
-}
-
-// --- Mock Data ---
-
+// --- Mock/Initial Data ---
 const INITIAL_TRANSACTIONS: Transaction[] = [];
-
 const INITIAL_LEADS: Lead[] = [];
-
-// Returns the content of the most recent activity log entry for a lead
-function getLeadSummary(lead: Lead): string {
-  if (!lead.notesLog || lead.notesLog.length === 0) return '';
-  const sorted = [...lead.notesLog].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  return sorted[0]?.content || '';
-}
-
-// --- Business Logic Hook ---
-
-function useCommissionMath(transaction: Transaction) {
-  return useMemo(() => {
-    const grossCommission = transaction.price * (transaction.grossCommissionPercent / 100);
-    const treyGrossCut = grossCommission * (transaction.treySplitPercent / 100);
-    const kirkGrossCut = grossCommission * (transaction.kirkSplitPercent / 100);
-    const laoFromTrey = treyGrossCut * (transaction.treyLaoPercent / 100);
-    const laoFromKirk = kirkGrossCut * (transaction.kirkLaoPercent / 100);
-    const treyNet = treyGrossCut - laoFromTrey;
-    const kirkNet = kirkGrossCut - laoFromKirk;
-    const laoTotal = laoFromTrey + laoFromKirk;
-
-    return {
-      grossCommission,
-      treyGrossCut,
-      kirkGrossCut,
-      laoFromTrey,
-      laoFromKirk,
-      treyNet,
-      kirkNet,
-      laoTotal,
-      // legacy aliases kept for any remaining display references
-      treyTake: treyNet,
-      kirkTake: kirkNet,
-    };
-  }, [transaction.price, transaction.grossCommissionPercent, transaction.treyLaoPercent, transaction.kirkLaoPercent, transaction.treySplitPercent, transaction.kirkSplitPercent]);
-}
 
 // --- Components ---
 
@@ -1135,135 +756,6 @@ const AIAssistant = ({
     </div>
   );
 };
-
-// --- Module-level CSV processing functions (used by DataManagementView and startup auto-load) ---
-
-function processTransactionCSV(data: any[]): Transaction[] {
-  const newTransactions: Transaction[] = [];
-  data.forEach((row, index) => {
-    const parseCurrency = (str: string) => {
-      if (!str) return 0;
-      return Number(str.replace(/[^0-9.-]+/g, ''));
-    };
-    const parsePercent = (str: string) => {
-      if (!str) return 0;
-      return Number(str.replace(/[^0-9.-]+/g, ''));
-    };
-    const parseDate = (str: string) => {
-      if (!str) return '';
-      try {
-        const d = new Date(str);
-        if (!isNaN(d.getTime())) return d.toISOString();
-        return '';
-      } catch (e) { return ''; }
-    };
-    let stage: PipelineStage = 'LOI';
-    const rawStage = row['Stage:']?.trim();
-    if (rawStage === 'Closed') stage = 'Closed';
-    else if (rawStage === 'Escrow') stage = 'Escrow';
-    else if (rawStage === 'Contract') stage = 'Contract';
-    else if (rawStage === 'Option') stage = 'Option';
-    // Column C ("Seller/Buyer:") contains "SellerEntity/BuyerEntity" — split on "/" to get each entity.
-    // Column D ("Seller Contact") is the Seller contact person.
-    // Column E ("Buyer Contact") is the Buyer contact person.
-    const sellerBuyerRaw = row['Seller/Buyer:'] || '';
-    const slashIdx = sellerBuyerRaw.indexOf('/');
-    const sellerEntity = slashIdx >= 0 ? sellerBuyerRaw.slice(0, slashIdx).trim() : sellerBuyerRaw.trim();
-    const buyerEntity  = slashIdx >= 0 ? sellerBuyerRaw.slice(slashIdx + 1).trim() : '';
-    const sellerContact = row['Seller Contact'] || '';    // Column D = Seller contact
-    const buyerContact  = row['Buyer Contact'] || '';     // Column E = Buyer contact
-    const t: Transaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      dealName: sellerBuyerRaw || `Deal ${index + 1}`,
-      stage,
-      price: parseCurrency(row['Price:']),
-      grossCommissionPercent: parsePercent(row['Base Commission']),
-      treyLaoPercent: parsePercent(row['Trey LAO']) || 35,
-      kirkLaoPercent: parsePercent(row['Kirk LAO']) || 30,
-      treySplitPercent: parsePercent(row['Trey Commission']),
-      kirkSplitPercent: parsePercent(row['Kirk Commission']),
-      earnestMoney: 0,
-      psaDate: '',
-      feasibilityDate: parseDate(row['Feasability End Date']),
-      coeDate: parseDate(row['Close of Escrow']),
-      address: '',
-      acreage: 0,
-      zoning: '',
-      clientContact: '',
-      clientPhone: '',
-      clientEmail: '',
-      coBroker: '',
-      titleCompany: '',
-      referralSource: '',
-      notes: '',
-      notesLog: [],
-      buyer: { role: 'Buyer', name: buyerContact, entity: buyerEntity },
-      seller: { role: 'Seller', name: sellerContact, entity: sellerEntity },
-      otherParties: [],
-      customDates: [],
-      documents: [],
-      apn: row['PID'] || '',
-      pid: row['PID'] || '',
-      projectYear: row['Year'] || new Date().getFullYear().toString(),
-      county: '',
-      isDeleted: false
-    };
-    newTransactions.push(t);
-  });
-  return newTransactions;
-}
-
-function processLeadCSV(data: any[]): Lead[] {
-  const newLeads: Lead[] = [];
-  data.forEach((row, index) => {
-    const parseDate = (str: string) => {
-      if (!str) return '';
-      try {
-        if (!isNaN(Number(str)) && Number(str) > 20000) {
-          const date = new Date((Number(str) - 25569) * 86400 * 1000);
-          return date.toISOString();
-        }
-        const d = new Date(str);
-        if (!isNaN(d.getTime())) return d.toISOString();
-        return '';
-      } catch (e) { return ''; }
-    };
-    const rawType = row['Lead Type']?.trim() || '';
-    // Map legacy CSV lead type values to new LeadStage
-    const legacyTypeMap: Record<string, LeadStage> = {
-      'True Lead': 'Buyer Lead',
-      'Live Contract': 'Listing',
-      'Converted Lead (Escrow)': 'Buyer Lead',
-      'Dead Deal': 'Dead Lead',
-      'Buyer Lead': 'Buyer Lead',
-      'Listing Lead': 'Listing Lead',
-      'Listing': 'Listing',
-      'Dead Lead': 'Dead Lead',
-      'Dead Listing': 'Dead Listing',
-    };
-    const mappedStage: LeadStage = legacyTypeMap[rawType] || 'Buyer Lead';
-    const l: Lead = {
-      id: Math.random().toString(36).substr(2, 9),
-      stage: mappedStage,
-      projectName: row['Project Name'] || `Lead ${index + 1}`,
-      contactName: row['Contact'] || '',
-      contactRole: row['Contact Role'] || '',
-      contactPhone: row['Contact Phone'] || '',
-      contactEmail: row['Contact Email'] || '',
-      description: row['Description'] || '',
-      estValue: row['Est Value'] ? Number(row['Est Value']) : undefined,
-      assignedAgent: row['Assigned Agent'] || '',
-      details: row['Details'] || '',
-      lastSpokeDate: parseDate(row['Last Spoke']),
-      summary: row['Summary of Discussion'] || '',
-      isDeleted: false,
-      notesLog: [],
-      followUpDate: undefined
-    };
-    newLeads.push(l);
-  });
-  return newLeads;
-}
 
 const DataManagementView = ({ 
   transactions, 
