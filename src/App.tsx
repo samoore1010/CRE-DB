@@ -1194,7 +1194,7 @@ const DataManagementView = ({
                   const rows = [
                     ['Buyer Lead','Greenfield Acres','Tom Wilson','40 acres irrigated farmland','3/1/2026','Referred by Kirk — motivated buyer, wants to close by Q3'],
                     ['Listing Lead','Sunny Valley Farms','Sarah Chen','120 acres raw land','2/15/2026','Owner interested in listing — waiting on survey results'],
-                    ['Listing','Riverside Parcel','Mike Torres','65 acres, mixed zoning','1/20/2026','Active listing — follow up on marketing plan next week'],
+                    ['Active Listing','Riverside Parcel','Mike Torres','65 acres, mixed zoning','1/20/2026','Active listing — follow up on marketing plan next week'],
                   ];
                   return (
                     <div className="space-y-2">
@@ -1229,7 +1229,7 @@ const DataManagementView = ({
                         </table>
                       </div>
                       <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Lead Type must be one of: <span className="font-semibold">Buyer Lead, Listing Lead, Listing, Dead Lead, Dead Listing</span>. Legacy values (True Lead, Live Contract, Dead Deal) are auto-mapped. Dates can be in any standard format (e.g. 3/1/2026).</p>
+                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Lead Type must be one of: <span className="font-semibold">Buyer Lead, Listing Lead, Active Listing, Dead Lead, Dead Listing</span>. Legacy values (True Lead, Live Contract, Dead Deal, Signed Listing, Trusted Listing) are auto-mapped. Dates can be in any standard format (e.g. 3/1/2026).</p>
                       </div>
                     </div>
                   );
@@ -1313,7 +1313,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
     const leadHealth = {
         'Buyer Lead': activeLeads.filter(l => l.stage === 'Buyer Lead').length,
         'Listing Lead': activeLeads.filter(l => l.stage === 'Listing Lead').length,
-        'Listing': activeLeads.filter(l => l.stage === 'Listing').length,
+        'Active Listing': activeLeads.filter(l => l.stage === 'Active Listing').length,
         'Dead Lead': activeLeads.filter(l => l.stage === 'Dead Lead' || l.stage === 'Dead Listing').length,
     };
 
@@ -1525,7 +1525,7 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
     return [
       { name: 'Buyer Lead', count: allLeads.filter(l => l.stage === 'Buyer Lead').length, color: '#3b82f6' },
       { name: 'Listing Lead', count: allLeads.filter(l => l.stage === 'Listing Lead').length, color: '#f59e0b' },
-      { name: 'Listing', count: allLeads.filter(l => l.stage === 'Listing').length, color: '#8b5cf6' },
+      { name: 'Active Listing', count: allLeads.filter(l => l.stage === 'Active Listing').length, color: '#8b5cf6' },
       { name: 'Dead', count: allLeads.filter(l => l.stage === 'Dead Lead' || l.stage === 'Dead Listing').length, color: '#94a3b8' },
     ];
   }, [leads]);
@@ -1713,12 +1713,12 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
                             <div
                                 className={cn(
                                     "h-full rounded-full",
-                                    stage === 'Listing' ? "bg-purple-500" : stage === 'Listing Lead' ? "bg-amber-500" : stage === 'Buyer Lead' ? "bg-blue-500" : "bg-slate-400"
+                                    stage === 'Active Listing' ? "bg-purple-500" : stage === 'Listing Lead' ? "bg-amber-500" : stage === 'Buyer Lead' ? "bg-blue-500" : "bg-slate-400"
                                 )}
                                 style={{ width: `${metrics.leadCount > 0 ? ((count as number) / metrics.leadCount) * 100 : 0}%` }}
                             />
                         </div>
-                        <span className="text-[10px] text-slate-400 mt-1 truncate">{stage === 'Listing' ? 'Listing' : stage === 'Listing Lead' ? 'Lst Lead' : stage === 'Buyer Lead' ? 'Buyer' : 'Dead'}</span>
+                        <span className="text-[10px] text-slate-400 mt-1 truncate">{stage === 'Active Listing' ? 'Listing' : stage === 'Listing Lead' ? 'Lst Lead' : stage === 'Buyer Lead' ? 'Buyer' : 'Dead'}</span>
                     </div>
                 ))}
             </div>
@@ -2484,31 +2484,31 @@ const DashboardView = ({ transactions, leads, actionLog, onSelectDeal, onSelectL
 const LEAD_STAGE_COLORS: Record<LeadStage, string> = {
   'Buyer Lead': 'border-blue-300 bg-blue-50',
   'Listing Lead': 'border-amber-300 bg-amber-50',
-  'Listing': 'border-purple-300 bg-purple-50',
+  'Active Listing': 'border-purple-300 bg-purple-50',
   'Dead Lead': 'border-slate-300 bg-slate-50',
   'Dead Listing': 'border-red-200 bg-red-50',
 };
 const LEAD_STAGE_CARD_ACCENT: Record<LeadStage, string> = {
   'Buyer Lead': 'border-l-blue-400',
   'Listing Lead': 'border-l-amber-400',
-  'Listing': 'border-l-purple-400',
+  'Active Listing': 'border-l-purple-400',
   'Dead Lead': 'border-l-slate-400',
   'Dead Listing': 'border-l-red-300',
 };
 const LEAD_STAGE_BADGE: Record<LeadStage, string> = {
   'Buyer Lead': 'bg-blue-100 text-blue-700',
   'Listing Lead': 'bg-amber-100 text-amber-700',
-  'Listing': 'bg-purple-100 text-purple-700',
+  'Active Listing': 'bg-purple-100 text-purple-700',
   'Dead Lead': 'bg-slate-100 text-slate-600',
   'Dead Listing': 'bg-red-100 text-red-600',
 };
 // Which stages a lead can be dragged into from a given stage
 const LEAD_VALID_TRANSITIONS: Record<LeadStage, LeadStage[]> = {
   'Buyer Lead': ['Dead Lead'],
-  'Listing Lead': ['Listing', 'Dead Listing'],
-  'Listing': ['Listing Lead', 'Dead Listing'],
+  'Listing Lead': ['Active Listing', 'Dead Listing'],
+  'Active Listing': ['Dead Listing'],
   'Dead Lead': ['Buyer Lead'],
-  'Dead Listing': ['Listing Lead', 'Listing'],
+  'Dead Listing': ['Listing Lead', 'Active Listing'],
 };
 
 const LeadsView = ({
@@ -2531,11 +2531,13 @@ const LeadsView = ({
   onUndoConversion?: (lead: Lead) => void,
 }) => {
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<'table' | 'kanban'>('kanban');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [dragLeadId, setDragLeadId] = useState<string | null>(null);
   const [isDragOverLOI, setIsDragOverLOI] = useState(false);
   const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
 
-  const kanbanStages: LeadStage[] = ['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing'];
+  const kanbanStages: LeadStage[] = ['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing'];
 
   const handleDragStart = (leadId: string) => setDragLeadId(leadId);
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
@@ -2554,7 +2556,9 @@ const LeadsView = ({
   const handleDropLOI = () => {
     if (!dragLeadId || !onConvertLeadToTransaction) return;
     const lead = leads.find(l => l.id === dragLeadId);
-    if (lead) onConvertLeadToTransaction(lead);
+    if (lead && lead.stage !== 'Dead Lead' && lead.stage !== 'Dead Listing') {
+      onConvertLeadToTransaction(lead);
+    }
     setDragLeadId(null);
     setIsDragOverLOI(false);
   };
@@ -2575,8 +2579,8 @@ const LeadsView = ({
   }, [activeLeads, search]);
 
   const exportCSV = () => {
-    const headers = ['Lead Stage', 'Project Name', 'Contact', 'Contact Role', 'Contact Phone', 'Contact Email', 'Description', 'Est Value', 'Assigned Agent', 'Last Spoke', 'Summary of Discussion'];
-    const rows = filteredActiveLeads.map(l => [l.stage, l.projectName, l.contactName, l.contactRole || '', l.contactPhone || '', l.contactEmail || '', l.description || '', l.estValue ?? '', l.assignedAgent || '', l.lastSpokeDate || '', getLeadSummary(l) || '']);
+    const headers = ['Lead Type', 'Project Name', 'Contact', 'Contact Role', 'Contact Phone', 'Contact Email', 'Description', 'Est Value', 'Assigned Agent', 'Last Spoke', 'Notes', 'PID', 'Acreage', 'List Price', 'List Date', 'Listing Expiration', 'Listing Stage'];
+    const rows = filteredActiveLeads.map(l => [l.stage, l.projectName, l.contactName, l.contactRole || '', l.contactPhone || '', l.contactEmail || '', l.description || '', l.estValue ?? '', l.assignedAgent || '', l.lastSpokeDate || '', getLeadSummary(l) || '', l.pid || '', l.acreage ?? '', l.listPrice ?? '', l.listDate || '', l.listingExpirationDate || '', l.listingStage || '']);
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -2614,6 +2618,14 @@ const LeadsView = ({
               <span className="hidden sm:inline">New Lead</span>
             </button>
           )}
+          <button
+            onClick={() => setViewMode(viewMode === 'kanban' ? 'table' : 'kanban')}
+            className={cn("flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors shrink-0", viewMode === 'kanban' ? "bg-indigo-600 text-white border-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}
+            title={viewMode === 'kanban' ? 'Switch to Table' : 'Switch to Kanban'}
+          >
+            <Columns3 className="w-4 h-4" />
+            <span className="hidden sm:inline">{viewMode === 'kanban' ? 'Kanban' : 'Table'}</span>
+          </button>
           <button
             onClick={exportCSV}
             className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-slate-200 shrink-0"
@@ -2655,7 +2667,88 @@ const LeadsView = ({
         )}
       </div>
 
+      {/* Table View */}
+      {viewMode === 'table' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {selectedIds.size > 0 && (
+            <div className="px-4 py-2 bg-red-50 border-b border-red-200 flex items-center gap-3">
+              <span className="text-sm text-red-700 font-medium">{selectedIds.size} selected</span>
+              <button
+                onClick={() => { onBatchDelete(Array.from(selectedIds)); setSelectedIds(new Set()); }}
+                className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-3 h-3" /> Delete Selected
+              </button>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  <th className="px-4 py-3 text-left w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredActiveLeads.length > 0 && selectedIds.size === filteredActiveLeads.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(new Set(filteredActiveLeads.map(l => l.id)));
+                        } else {
+                          setSelectedIds(new Set());
+                        }
+                      }}
+                      className="rounded border-slate-300"
+                    />
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Stage</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Project Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Last Spoke</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Agent</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Est Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredActiveLeads.map(lead => (
+                  <tr
+                    key={lead.id}
+                    className="border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer"
+                    onClick={() => onSelectLead(lead.id)}
+                  >
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(lead.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedIds);
+                          if (e.target.checked) next.add(lead.id); else next.delete(lead.id);
+                          setSelectedIds(next);
+                        }}
+                        className="rounded border-slate-300"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={cn("px-2 py-1 rounded-full text-xs font-bold", LEAD_STAGE_BADGE[lead.stage])}>{lead.stage}</span>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{lead.projectName}</td>
+                    <td className="px-4 py-3 text-slate-600">{lead.contactName}</td>
+                    <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{lead.description || ''}</td>
+                    <td className="px-4 py-3 text-slate-500">{lead.lastSpokeDate ? format(parseISO(lead.lastSpokeDate), 'MMM d, yyyy') : '--'}</td>
+                    <td className="px-4 py-3 text-slate-600">{lead.assignedAgent || '--'}</td>
+                    <td className="px-4 py-3 text-right text-slate-700 font-medium">{lead.estValue ? formatCurrency(lead.estValue) : '--'}</td>
+                  </tr>
+                ))}
+                {filteredActiveLeads.length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400 text-sm">No leads found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Kanban Board */}
+      {viewMode === 'kanban' && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {kanbanStages.map(stage => {
           const stageLeads = filteredActiveLeads.filter(l => l.stage === stage);
@@ -2750,6 +2843,7 @@ const LeadsView = ({
           );
         })}
       </div>
+      )}
 
       {/* Converted Leads Section */}
       {convertedLeads.length > 0 && (
@@ -2952,7 +3046,7 @@ const LeadDetailView = ({
   const daysSince = lastContactedDate ? Math.floor((Date.now() - lastContactedDate.getTime()) / (1000 * 60 * 60 * 24)) : null;
   const typeColor = formData.stage === 'Buyer Lead' ? 'bg-blue-100 text-blue-700 border-blue-200' :
     formData.stage === 'Listing Lead' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-    formData.stage === 'Listing' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+    formData.stage === 'Active Listing' ? 'bg-purple-100 text-purple-700 border-purple-200' :
     formData.stage === 'Dead Lead' || formData.stage === 'Dead Listing' ? 'bg-slate-100 text-slate-500 border-slate-200' :
     'bg-slate-100 text-slate-600 border-slate-200';
   const goToContact = (name: string, email?: string) => {
@@ -3029,7 +3123,7 @@ const LeadDetailView = ({
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Lead Stage</label>
               <select value={formData.stage} onChange={e => handleInputChange('stage', e.target.value as LeadStage)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                {(['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing'] as LeadStage[]).map(t => <option key={t} value={t}>{t}</option>)}
+                {(['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing'] as LeadStage[]).map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
             <div>
@@ -3055,6 +3149,45 @@ const LeadDetailView = ({
                 <input type="number" value={formData.estValue || ''} onChange={e => handleInputChange('estValue', e.target.value ? Number(e.target.value) : undefined)} min={0} placeholder="0" className="w-full pl-6 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
               </div>
             </div>
+            {formData.stage === 'Active Listing' && (
+              <div className="space-y-3 pt-3 border-t border-slate-200">
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Listing Details</h4>
+                {/* PID */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Parcel ID (PID)</label>
+                  <input type="text" value={formData.pid || ''} onChange={e => setFormData(prev => ({...prev, pid: e.target.value}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g. AZPinal123456" />
+                </div>
+                {/* Acreage */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Acreage</label>
+                  <input type="number" step="0.01" value={formData.acreage || ''} onChange={e => setFormData(prev => ({...prev, acreage: e.target.value ? Number(e.target.value) : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                {/* List Price */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">List Price</label>
+                  <input type="number" step="0.01" value={formData.listPrice || ''} onChange={e => setFormData(prev => ({...prev, listPrice: e.target.value ? Number(e.target.value) : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                {/* Listing Stage */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Listing Stage</label>
+                  <select value={formData.listingStage || ''} onChange={e => setFormData(prev => ({...prev, listingStage: (e.target.value || undefined) as any}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                    <option value="">—</option>
+                    <option value="Trusted">Trusted</option>
+                    <option value="Signed">Signed</option>
+                  </select>
+                </div>
+                {/* List Date */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">List Date</label>
+                  <input type="date" value={formData.listDate ? formData.listDate.slice(0, 10) : ''} onChange={e => setFormData(prev => ({...prev, listDate: e.target.value ? new Date(e.target.value).toISOString() : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+                {/* Listing Expiration */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Listing Expiration</label>
+                  <input type="date" value={formData.listingExpirationDate ? formData.listingExpirationDate.slice(0, 10) : ''} onChange={e => setFormData(prev => ({...prev, listingExpirationDate: e.target.value ? new Date(e.target.value).toISOString() : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                </div>
+              </div>
+            )}
             {lastContactedDate && (
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Last Contacted</label>
@@ -7130,7 +7263,7 @@ const NewLeadModal = ({
   onClose: () => void,
   onSave: (lead: Lead) => void,
 }) => {
-  const LEAD_STAGES: LeadStage[] = ['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing'];
+  const LEAD_STAGES: LeadStage[] = ['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing'];
   const emptyForm = (): Partial<Lead> => ({
     stage: 'Buyer Lead',
     projectName: '',
@@ -7175,6 +7308,12 @@ const NewLeadModal = ({
       notesLog: [],
       contacts: [],
       reminders: [],
+      ...((form as any).pid ? { pid: (form as any).pid } : {}),
+      ...((form as any).acreage != null ? { acreage: (form as any).acreage } : {}),
+      ...((form as any).listPrice != null ? { listPrice: (form as any).listPrice } : {}),
+      ...((form as any).listingStage ? { listingStage: (form as any).listingStage } : {}),
+      ...((form as any).listDate ? { listDate: (form as any).listDate } : {}),
+      ...((form as any).listingExpirationDate ? { listingExpirationDate: (form as any).listingExpirationDate } : {}),
     };
     onSave(newLead);
     handleClose();
@@ -7323,6 +7462,41 @@ const NewLeadModal = ({
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
                   />
                 </div>
+                {form.stage === 'Active Listing' && (
+                  <div className="col-span-2 space-y-3 pt-3 border-t border-slate-200">
+                    <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Listing Details</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Parcel ID (PID)</label>
+                        <input type="text" value={(form as any).pid || ''} onChange={e => set('pid' as any, e.target.value)} placeholder="e.g. AZPinal123456" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Acreage</label>
+                        <input type="number" step="0.01" value={(form as any).acreage || ''} onChange={e => set('acreage' as any, e.target.value ? Number(e.target.value) : undefined)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">List Price</label>
+                        <input type="number" step="0.01" value={(form as any).listPrice || ''} onChange={e => set('listPrice' as any, e.target.value ? Number(e.target.value) : undefined)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Listing Stage</label>
+                        <select value={(form as any).listingStage || ''} onChange={e => set('listingStage' as any, e.target.value || undefined)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                          <option value="">--</option>
+                          <option value="Trusted">Trusted</option>
+                          <option value="Signed">Signed</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">List Date</label>
+                        <input type="date" value={(form as any).listDate ? (form as any).listDate.slice(0, 10) : ''} onChange={e => set('listDate' as any, e.target.value ? new Date(e.target.value).toISOString() : undefined)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">Listing Expiration</label>
+                        <input type="date" value={(form as any).listingExpirationDate ? (form as any).listingExpirationDate.slice(0, 10) : ''} onChange={e => set('listingExpirationDate' as any, e.target.value ? new Date(e.target.value).toISOString() : undefined)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </form>
 
@@ -8740,7 +8914,7 @@ const ReportsView = ({
       { name: 'Total Leads', count: active.length, color: '#94a3b8' },
       { name: 'Buyer Lead', count: active.filter(l => l.stage === 'Buyer Lead').length, color: '#3b82f6' },
       { name: 'Listing Lead', count: active.filter(l => l.stage === 'Listing Lead').length, color: '#f59e0b' },
-      { name: 'Listing', count: active.filter(l => l.stage === 'Listing').length, color: '#8b5cf6' },
+      { name: 'Active Listing', count: active.filter(l => l.stage === 'Active Listing').length, color: '#8b5cf6' },
     ];
   }, [leads]);
 
@@ -10164,22 +10338,24 @@ function AppInner() {
     const newTransactionId = Math.random().toString(36).substr(2, 9);
 
     // Build a new transaction pre-populated from the lead
+    const isActiveListing = lead.stage === 'Active Listing';
+    const price = lead.estValue || (isActiveListing && lead.listPrice ? lead.listPrice : 0);
     const newTransaction: Transaction = {
       id: newTransactionId,
       dealName: lead.projectName || 'Converted Lead',
       stage: 'LOI',
-      price: lead.estValue || 0,
-      grossCommissionPercent: 3,
-      treyLaoPercent: 35,
-      kirkLaoPercent: 30,
-      treySplitPercent: 50,
-      kirkSplitPercent: 50,
+      price,
+      grossCommissionPercent: preferences.defaultGrossCommissionPercent,
+      treyLaoPercent: preferences.defaultTreyLaoPercent,
+      kirkLaoPercent: preferences.defaultKirkLaoPercent,
+      treySplitPercent: preferences.defaultTreySplit,
+      kirkSplitPercent: preferences.defaultKirkSplit,
       earnestMoney: 0,
       psaDate: '',
       feasibilityDate: '',
       coeDate: '',
       address: '',
-      acreage: 0,
+      acreage: isActiveListing && lead.acreage ? lead.acreage : 0,
       zoning: '',
       clientContact: lead.contactName || '',
       clientPhone: lead.contactPhone || '',
@@ -10192,6 +10368,7 @@ function AppInner() {
       buyer: { role: 'Buyer', name: lead.stage === 'Buyer Lead' ? lead.contactName : '', entity: '' },
       seller: { role: 'Seller', name: lead.stage !== 'Buyer Lead' ? lead.contactName : '', entity: '' },
       otherParties: [],
+      ...(isActiveListing && lead.pid ? { apn: lead.pid } : {}),
       // Inject conversion date annotation into timeline
       customDates: [{
         id: Math.random().toString(36).substr(2, 9),

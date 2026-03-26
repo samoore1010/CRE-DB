@@ -193,17 +193,18 @@ const TransactionSchema = z.object({
   seller: PartySchema,
 }).passthrough();
 
-const LeadStageSchema = z.enum(['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing']);
+const LeadStageSchema = z.enum(['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing']);
 
 const LeadSchema = z.object({
   id: z.string().min(1),
   stage: LeadStageSchema,
   projectName: z.string(),
   contactName: z.string(),
-  details: z.string(),
-  lastSpokeDate: z.string(),
-  summary: z.string(),
   isDeleted: z.boolean(),
+  // Made optional — legacy fields migrated to description/notesLog
+  details: z.string().optional(),
+  lastSpokeDate: z.string().optional(),
+  summary: z.string().optional(),
 }).passthrough();
 
 const ContactSchema = z.object({

@@ -1,7 +1,7 @@
 // --- Types & Interfaces ---
 
 export type PipelineStage = 'LOI' | 'Contract' | 'Escrow' | 'Closed' | 'Option';
-export type LeadStage = 'Buyer Lead' | 'Listing Lead' | 'Listing' | 'Dead Lead' | 'Dead Listing';
+export type LeadStage = 'Buyer Lead' | 'Listing Lead' | 'Active Listing' | 'Dead Lead' | 'Dead Listing';
 
 export interface Party {
   id?: string;
@@ -135,9 +135,9 @@ export interface Lead {
   description?: string;
   estValue?: number;
   assignedAgent?: string;
-  details: string;
-  lastSpokeDate: string;
-  summary: string;
+  details?: string;
+  lastSpokeDate?: string;
+  summary?: string;
   isDeleted: boolean;
   deletedAt?: string;
   notesLog?: Note[];
@@ -146,6 +146,13 @@ export interface Lead {
   reminders?: LeadReminder[];
   convertedToTransactionId?: string;
   convertedAt?: string;
+  // Listing-specific fields
+  pid?: string;
+  acreage?: number;
+  listDate?: string;
+  listingExpirationDate?: string;
+  listPrice?: number;
+  listingStage?: 'Trusted' | 'Signed';
 }
 
 export type ActionType =
