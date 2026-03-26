@@ -2667,7 +2667,88 @@ const LeadsView = ({
         )}
       </div>
 
+      {/* Table View */}
+      {viewMode === 'table' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {selectedIds.size > 0 && (
+            <div className="px-4 py-2 bg-red-50 border-b border-red-200 flex items-center gap-3">
+              <span className="text-sm text-red-700 font-medium">{selectedIds.size} selected</span>
+              <button
+                onClick={() => { onBatchDelete(Array.from(selectedIds)); setSelectedIds(new Set()); }}
+                className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+              >
+                <Trash2 className="w-3 h-3" /> Delete Selected
+              </button>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  <th className="px-4 py-3 text-left w-10">
+                    <input
+                      type="checkbox"
+                      checked={filteredActiveLeads.length > 0 && selectedIds.size === filteredActiveLeads.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(new Set(filteredActiveLeads.map(l => l.id)));
+                        } else {
+                          setSelectedIds(new Set());
+                        }
+                      }}
+                      className="rounded border-slate-300"
+                    />
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Stage</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Project Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Last Spoke</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Agent</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Est Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredActiveLeads.map(lead => (
+                  <tr
+                    key={lead.id}
+                    className="border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer"
+                    onClick={() => onSelectLead(lead.id)}
+                  >
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(lead.id)}
+                        onChange={(e) => {
+                          const next = new Set(selectedIds);
+                          if (e.target.checked) next.add(lead.id); else next.delete(lead.id);
+                          setSelectedIds(next);
+                        }}
+                        className="rounded border-slate-300"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={cn("px-2 py-1 rounded-full text-xs font-bold", LEAD_STAGE_BADGE[lead.stage])}>{lead.stage}</span>
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{lead.projectName}</td>
+                    <td className="px-4 py-3 text-slate-600">{lead.contactName}</td>
+                    <td className="px-4 py-3 text-slate-500 max-w-[200px] truncate">{lead.description || ''}</td>
+                    <td className="px-4 py-3 text-slate-500">{lead.lastSpokeDate ? format(parseISO(lead.lastSpokeDate), 'MMM d, yyyy') : '--'}</td>
+                    <td className="px-4 py-3 text-slate-600">{lead.assignedAgent || '--'}</td>
+                    <td className="px-4 py-3 text-right text-slate-700 font-medium">{lead.estValue ? formatCurrency(lead.estValue) : '--'}</td>
+                  </tr>
+                ))}
+                {filteredActiveLeads.length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400 text-sm">No leads found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Kanban Board */}
+      {viewMode === 'kanban' && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {kanbanStages.map(stage => {
           const stageLeads = filteredActiveLeads.filter(l => l.stage === stage);
@@ -2762,6 +2843,7 @@ const LeadsView = ({
           );
         })}
       </div>
+      )}
 
       {/* Converted Leads Section */}
       {convertedLeads.length > 0 && (
