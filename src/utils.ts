@@ -145,11 +145,10 @@ export function getMissingTransactionFields(t: Transaction): { key: string; labe
   return missing;
 }
 
-export function getMissingLeadFields(l: { projectName: string; contactName: string; lastSpokeDate: string }): { key: string; label: string }[] {
+export function getMissingLeadFields(l: { projectName: string; contactName: string; lastSpokeDate?: string }): { key: string; label: string }[] {
   const missing: { key: string; label: string }[] = [];
   if (!l.projectName) missing.push({ key: 'projectName', label: 'Project Name' });
   if (!l.contactName) missing.push({ key: 'contactName', label: 'Contact' });
-  if (!l.lastSpokeDate) missing.push({ key: 'lastSpokeDate', label: 'Last Spoke' });
   return missing;
 }
 

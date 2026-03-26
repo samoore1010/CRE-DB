@@ -164,12 +164,22 @@ describe('getMissingTransactionFields', () => {
 
 describe('getMissingLeadFields', () => {
   it('returns empty for complete lead', () => {
-    expect(getMissingLeadFields({ projectName: 'Test', contactName: 'John', lastSpokeDate: '2025-01-01' })).toEqual([]);
+    expect(getMissingLeadFields({ projectName: 'Test', contactName: 'John' })).toEqual([]);
   });
 
   it('detects missing project name', () => {
-    const missing = getMissingLeadFields({ projectName: '', contactName: 'John', lastSpokeDate: '2025-01-01' });
+    const missing = getMissingLeadFields({ projectName: '', contactName: 'John' });
     expect(missing.some(m => m.key === 'projectName')).toBe(true);
+  });
+
+  it('detects missing contact name', () => {
+    const missing = getMissingLeadFields({ projectName: 'Test', contactName: '' });
+    expect(missing.some(m => m.key === 'contactName')).toBe(true);
+  });
+
+  it('does not require lastSpokeDate', () => {
+    const missing = getMissingLeadFields({ projectName: 'Test', contactName: 'John' });
+    expect(missing.some(m => m.key === 'lastSpokeDate')).toBe(false);
   });
 });
 

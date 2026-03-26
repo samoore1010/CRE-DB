@@ -115,7 +115,7 @@ describe('processTransactionCSV', () => {
 });
 
 describe('processLeadCSV', () => {
-  it('parses a basic lead row', () => {
+  it('parses a basic buyer lead row', () => {
     const data = [{
       'Lead Type': 'Buyer Lead',
       'Project Name': 'Test Project',
@@ -126,9 +126,8 @@ describe('processLeadCSV', () => {
       'Description': 'Interested in land purchase',
       'Est Value': '500000',
       'Assigned Agent': 'Trey',
-      'Details': 'Looking in north area',
       'Last Spoke': '2025-01-15',
-      'Summary of Discussion': 'Initial meeting',
+      'Notes': 'Initial meeting',
     }];
 
     const result = processLeadCSV(data);
@@ -144,17 +143,41 @@ describe('processLeadCSV', () => {
     expect(l.description).toBe('Interested in land purchase');
     expect(l.estValue).toBe(500000);
     expect(l.assignedAgent).toBe('Trey');
-    expect(l.details).toBe('Looking in north area');
-    expect(l.summary).toBe('Initial meeting');
     expect(l.isDeleted).toBe(false);
+  });
+
+  it('parses a listing row with property data', () => {
+    const data = [{
+      'Lead Type': 'Active Listing',
+      'Project Name': 'Brady Land - Burris & Clayton Rds',
+      'PID': 'AZPinal186844',
+      'Acreage': '27.31',
+      'List Date': '6/5/2024',
+      'Listing Expiration': '6/5/2026',
+      'List Price': '9516988.8',
+      'Listing Stage': 'Signed',
+    }];
+
+    const result = processLeadCSV(data);
+    const l = result[0];
+    expect(l.stage).toBe('Active Listing');
+    expect(l.pid).toBe('AZPinal186844');
+    expect(l.acreage).toBe(27.31);
+    expect(l.listPrice).toBe(9516988.8);
+    expect(l.listingStage).toBe('Signed');
+    expect(l.listDate).toBeTruthy();
+    expect(l.listingExpirationDate).toBeTruthy();
   });
 
   it('maps legacy lead types correctly', () => {
     const mappings: Record<string, string> = {
       'True Lead': 'Buyer Lead',
-      'Live Contract': 'Listing',
+      'Live Contract': 'Active Listing',
       'Dead Deal': 'Dead Lead',
       'Converted Lead (Escrow)': 'Buyer Lead',
+      'Signed Listing': 'Active Listing',
+      'Trusted Listing': 'Active Listing',
+      'Listing': 'Active Listing',
     };
 
     Object.entries(mappings).forEach(([input, expected]) => {
@@ -164,11 +187,66 @@ describe('processLeadCSV', () => {
   });
 
   it('maps standard lead types correctly', () => {
-    const types = ['Buyer Lead', 'Listing Lead', 'Listing', 'Dead Lead', 'Dead Listing'];
+    const types = ['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing'];
     types.forEach(type => {
       const result = processLeadCSV([{ 'Lead Type': type }]);
       expect(result[0].stage).toBe(type);
     });
+  });
+
+  it('reads Stage Name column as lead type (listing spreadsheet format)', () => {
+    const result = processLeadCSV([{ 'Stage Name': 'Signed Listing' }]);
+    expect(result[0].stage).toBe('Active Listing');
+    expect(result[0].listingStage).toBe('Signed');
+  });
+
+  it('reads Trusted Listing and sets listingStage', () => {
+    const result = processLeadCSV([{ 'Lead Type': 'Trusted Listing' }]);
+    expect(result[0].stage).toBe('Active Listing');
+    expect(result[0].listingStage).toBe('Trusted');
+  });
+
+  it('reads Deal Name as project name fallback', () => {
+    const result = processLeadCSV([{ 'Deal Name': 'Illinois Road & 15.3 Ac' }]);
+    expect(result[0].projectName).toBe('Illinois Road & 15.3 Ac');
+  });
+
+  it('reads Name column as contact (dead leads format)', () => {
+    const result = processLeadCSV([{ 'Name': 'Tanner Ferandi', 'Inquiry': 'Pinal County Tech Park' }]);
+    expect(result[0].contactName).toBe('Tanner Ferandi');
+    expect(result[0].description).toBe('Pinal County Tech Park');
+  });
+
+  it('reads Inquiry and Response columns (dead leads format)', () => {
+    const result = processLeadCSV([{
+      'Name': 'John',
+      'Inquiry': 'Looking for land',
+      'Response': 'Almost to contract but died',
+      'Last Spoke': '7/18/2022',
+    }]);
+    expect(result[0].description).toBe('Looking for land');
+    expect(result[0].notesLog).toHaveLength(1);
+    expect(result[0].notesLog![0].content).toBe('Almost to contract but died');
+  });
+
+  it('reads Acres column as acreage', () => {
+    const result = processLeadCSV([{ 'Acres': '320' }]);
+    expect(result[0].acreage).toBe(320);
+  });
+
+  it('reads Summary of Discussion as notes fallback', () => {
+    const result = processLeadCSV([{
+      'Summary of Discussion': 'Waiting on contract feedback',
+      'Last Spoke': '5/16/2025',
+    }]);
+    expect(result[0].notesLog).toHaveLength(1);
+    expect(result[0].notesLog![0].content).toBe('Waiting on contract feedback');
+  });
+
+  it('uses List Price as estValue fallback', () => {
+    const result = processLeadCSV([{ 'List Price': '1500000' }]);
+    expect(result[0].estValue).toBe(1500000);
+    expect(result[0].listPrice).toBe(1500000);
   });
 
   it('defaults to Buyer Lead for unknown type', () => {
@@ -182,11 +260,9 @@ describe('processLeadCSV', () => {
   });
 
   it('handles Excel serial date numbers', () => {
-    // Excel serial number for 2025-01-15 is approximately 45672
     const result = processLeadCSV([{ 'Last Spoke': '45672' }]);
     expect(result[0].lastSpokeDate).toBeTruthy();
-    // Verify it parsed to a valid ISO date
-    expect(new Date(result[0].lastSpokeDate).getTime()).not.toBeNaN();
+    expect(new Date(result[0].lastSpokeDate!).getTime()).not.toBeNaN();
   });
 
   it('handles standard date strings', () => {
@@ -211,8 +287,26 @@ describe('processLeadCSV', () => {
     expect(result[1].projectName).toBe('Lead 2');
   });
 
-  it('initializes with empty notesLog', () => {
-    const result = processLeadCSV([{}]);
-    expect(result[0].notesLog).toEqual([]);
+  it('handles rows with only some fields populated', () => {
+    const result = processLeadCSV([{
+      'Lead Type': 'Buyer Lead',
+      'Project Name': 'Partial Data',
+    }]);
+    const l = result[0];
+    expect(l.projectName).toBe('Partial Data');
+    expect(l.contactName).toBe('');
+    expect(l.description).toBe('');
+    expect(l.pid).toBe('');
+    expect(l.acreage).toBeUndefined();
+    expect(l.listPrice).toBeUndefined();
+    expect(l.assignedAgent).toBe('');
+  });
+
+  it('creates notesLog entry when notes are present, empty when not', () => {
+    const withNotes = processLeadCSV([{ 'Notes': 'Some note', 'Last Spoke': '2025-01-01' }]);
+    expect(withNotes[0].notesLog).toHaveLength(1);
+
+    const withoutNotes = processLeadCSV([{ 'Project Name': 'No notes' }]);
+    expect(withoutNotes[0].notesLog).toEqual([]);
   });
 });
