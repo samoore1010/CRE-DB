@@ -8973,41 +8973,90 @@ const ReportsView = ({
 }) => {
   const agent1 = preferences.agent1Name || 'Trey';
   const agent2 = preferences.agent2Name || 'Kirk';
-  const [periodFilter, setPeriodFilter] = useState<'all' | 'ytd' | '30d' | '90d'>('all');
 
-  const today = useMemo(() => new Date(), []);
+  // --- Date range state ---
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [agentFilter, setAgentFilter] = useState<'all' | 'agent1' | 'agent2'>('all');
 
+  const setPreset = (preset: 'all' | 'ytd' | 'lastyear' | '90d') => {
+    const now = new Date();
+    switch (preset) {
+      case 'all': setDateFrom(''); setDateTo(''); break;
+      case 'ytd': setDateFrom(`${now.getFullYear()}-01-01`); setDateTo(''); break;
+      case 'lastyear': setDateFrom(`${now.getFullYear() - 1}-01-01`); setDateTo(`${now.getFullYear() - 1}-12-31`); break;
+      case '90d': setDateFrom(subDays(now, 90).toISOString().slice(0, 10)); setDateTo(''); break;
+    }
+  };
+
+  const activePreset = useMemo(() => {
+    const now = new Date();
+    if (!dateFrom && !dateTo) return 'all';
+    if (dateFrom === `${now.getFullYear()}-01-01` && !dateTo) return 'ytd';
+    if (dateFrom === `${now.getFullYear() - 1}-01-01` && dateTo === `${now.getFullYear() - 1}-12-31`) return 'lastyear';
+    return null;
+  }, [dateFrom, dateTo]);
+
+  // --- Filtered transactions (all charts use this) ---
   const filteredTransactions = useMemo(() => {
-    if (periodFilter === 'all') return transactions;
-    const cutoff =
-      periodFilter === 'ytd'
-        ? new Date(today.getFullYear(), 0, 1)
-        : periodFilter === '30d'
-        ? subDays(today, 30)
-        : subDays(today, 90);
-    return transactions.filter(t => {
-      const ref = t.coeDate ? parseISO(t.coeDate) : t.psaDate ? parseISO(t.psaDate) : null;
-      return ref ? isAfter(ref, cutoff) : false;
-    });
-  }, [transactions, periodFilter, today]);
+    let result = transactions.filter(t => !t.isDeleted);
+    if (dateFrom) {
+      const from = parseISO(dateFrom);
+      result = result.filter(t => {
+        const ref = t.coeDate ? parseISO(t.coeDate) : t.psaDate ? parseISO(t.psaDate) : null;
+        return ref ? !isBefore(ref, from) : false;
+      });
+    }
+    if (dateTo) {
+      const to = parseISO(dateTo);
+      result = result.filter(t => {
+        const ref = t.coeDate ? parseISO(t.coeDate) : t.psaDate ? parseISO(t.psaDate) : null;
+        return ref ? !isAfter(ref, addDays(to, 1)) : false;
+      });
+    }
+    return result;
+  }, [transactions, dateFrom, dateTo]);
 
-  // Commission by agent
+  // --- Formatting helper for chart axes ---
+  const fmtAxis = (v: number) => {
+    if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+    if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+    return `$${v}`;
+  };
+
+  // --- KPIs ---
+  const kpis = useMemo(() => {
+    const closed = filteredTransactions.filter(t => t.stage === 'Closed');
+    const active = filteredTransactions.filter(t => t.stage !== 'Closed');
+    const totalGross = closed.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
+    const totalNet1 = closed.reduce((s, t) => {
+      const g = t.price * (t.grossCommissionPercent / 100);
+      return s + g * (t.treySplitPercent / 100) * (1 - (t.treyLaoPercent ?? 35) / 100);
+    }, 0);
+    const totalNet2 = closed.reduce((s, t) => {
+      const g = t.price * (t.grossCommissionPercent / 100);
+      return s + g * (t.kirkSplitPercent / 100) * (1 - (t.kirkLaoPercent ?? 30) / 100);
+    }, 0);
+    const activeVal = active.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
+    return { totalGross, totalNet1, totalNet2, closedCount: closed.length, activeCount: active.length, activeVal };
+  }, [filteredTransactions]);
+
+  // --- Commission by Agent ---
   const commissionByAgent = useMemo(() => {
-    let agent1Total = 0, agent2Total = 0;
-    filteredTransactions.forEach(t => {
+    let a1 = 0, a2 = 0;
+    filteredTransactions.filter(t => t.stage === 'Closed').forEach(t => {
       const gross = t.price * (t.grossCommissionPercent / 100);
-      const treyGross = gross * (t.treySplitPercent / 100);
-      const kirkGross = gross * (t.kirkSplitPercent / 100);
-      agent1Total += treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
-      agent2Total += kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
+      a1 += gross * (t.treySplitPercent / 100) * (1 - (t.treyLaoPercent ?? 35) / 100);
+      a2 += gross * (t.kirkSplitPercent / 100) * (1 - (t.kirkLaoPercent ?? 30) / 100);
     });
-    return [
-      { name: agent1, value: Math.round(agent1Total), color: '#10b981' },
-      { name: agent2, value: Math.round(agent2Total), color: '#6366f1' },
-    ];
-  }, [filteredTransactions, agent1, agent2]);
+    const data = [];
+    if (agentFilter !== 'agent2') data.push({ name: agent1, value: Math.round(a1), fill: '#10b981' });
+    if (agentFilter !== 'agent1') data.push({ name: agent2, value: Math.round(a2), fill: '#6366f1' });
+    return data;
+  }, [filteredTransactions, agentFilter, agent1, agent2]);
 
-  // Commission by stage
+  // --- Commission by Stage ---
+  const STAGE_COLORS: Record<string, string> = { LOI: '#94a3b8', Contract: '#6366f1', Escrow: '#f59e0b', Closed: '#10b981', Option: '#f97316' };
   const commissionByStage = useMemo(() => {
     const stages: Record<string, number> = {};
     filteredTransactions.forEach(t => {
@@ -9017,59 +9066,45 @@ const ReportsView = ({
     return Object.entries(stages).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [filteredTransactions]);
 
-  // Commission by month (last 12 months)
+  // --- Commission by Month (within date range) ---
   const commissionByMonth = useMemo(() => {
-    const months: { month: string, [key: string]: number | string }[] = [];
-    for (let i = 11; i >= 0; i--) {
-      const m = subMonths(today, i);
-      const mStart = startOfMonth(m);
-      const mEnd = endOfMonth(m);
+    const closedWithDate = filteredTransactions.filter(t => t.stage === 'Closed' && t.coeDate);
+    if (closedWithDate.length === 0) return [];
+    const dates = closedWithDate.map(t => parseISO(t.coeDate));
+    const earliest = dates.reduce((a, b) => a < b ? a : b);
+    const latest = dates.reduce((a, b) => a > b ? a : b);
+    const months: { month: string; [key: string]: number | string }[] = [];
+    let cursor = startOfMonth(earliest);
+    const end = endOfMonth(latest);
+    while (cursor <= end) {
+      const mStart = startOfMonth(cursor);
+      const mEnd = endOfMonth(cursor);
       let a1 = 0, a2 = 0;
-      transactions.filter(t => t.coeDate).forEach(t => {
+      closedWithDate.forEach(t => {
         const coe = parseISO(t.coeDate);
         if (isWithinInterval(coe, { start: mStart, end: mEnd })) {
           const gross = t.price * (t.grossCommissionPercent / 100);
-          const treyGross = gross * (t.treySplitPercent / 100);
-          const kirkGross = gross * (t.kirkSplitPercent / 100);
-          a1 += treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
-          a2 += kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
+          a1 += gross * (t.treySplitPercent / 100) * (1 - (t.treyLaoPercent ?? 35) / 100);
+          a2 += gross * (t.kirkSplitPercent / 100) * (1 - (t.kirkLaoPercent ?? 30) / 100);
         }
       });
-      months.push({ month: format(m, 'MMM yy'), [agent1]: Math.round(a1), [agent2]: Math.round(a2) });
+      months.push({ month: format(cursor, 'MMM yy'), [agent1]: Math.round(a1), [agent2]: Math.round(a2) });
+      cursor = addMonths(cursor, 1);
     }
     return months;
-  }, [transactions, agent1, agent2, today]);
+  }, [filteredTransactions, agent1, agent2]);
 
-  // Pipeline value by stage
+  // --- Active Pipeline by Stage (always current, not date-filtered) ---
   const pipelineByStage = useMemo(() => {
     const stages: Record<string, number> = {};
-    transactions.filter(t => t.stage !== 'Closed').forEach(t => {
+    transactions.filter(t => !t.isDeleted && t.stage !== 'Closed').forEach(t => {
       const gross = t.price * (t.grossCommissionPercent / 100);
       stages[t.stage] = (stages[t.stage] || 0) + gross;
     });
     return Object.entries(stages).map(([name, value]) => ({ name, value: Math.round(value) }));
   }, [transactions]);
 
-  // Deal velocity: avg days per stage (based on closed deals, PSA → COE)
-  const dealVelocity = useMemo(() => {
-    const closed = transactions.filter(t => t.stage === 'Closed' && t.psaDate && t.coeDate);
-    if (closed.length === 0) return null;
-    const totalDays = closed.reduce((sum, t) => {
-      const diff = Math.round((parseISO(t.coeDate).getTime() - parseISO(t.psaDate).getTime()) / 86400000);
-      return sum + Math.max(0, diff);
-    }, 0);
-    return { avgDays: Math.round(totalDays / closed.length), count: closed.length };
-  }, [transactions]);
-
-  // Closed deal history
-  const closedDeals = useMemo(() => {
-    return transactions
-      .filter(t => t.stage === 'Closed')
-      .sort((a, b) => (b.coeDate || '').localeCompare(a.coeDate || ''))
-      .slice(0, 10);
-  }, [transactions]);
-
-  // Lead funnel
+  // --- Lead Funnel (always current) ---
   const leadFunnel = useMemo(() => {
     const active = leads.filter(l => !l.isDeleted);
     return [
@@ -9080,26 +9115,19 @@ const ReportsView = ({
     ];
   }, [leads]);
 
-  // KPI summary
-  const kpis = useMemo(() => {
-    const closed = transactions.filter(t => t.stage === 'Closed');
-    const active = transactions.filter(t => t.stage !== 'Closed');
-    const totalGross = closed.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
-    const totalNet1 = closed.reduce((s, t) => {
-      const g = t.price * (t.grossCommissionPercent / 100);
-      const treyGross = g * (t.treySplitPercent / 100);
-      return s + treyGross * (1 - (t.treyLaoPercent ?? 35) / 100);
-    }, 0);
-    const totalNet2 = closed.reduce((s, t) => {
-      const g = t.price * (t.grossCommissionPercent / 100);
-      const kirkGross = g * (t.kirkSplitPercent / 100);
-      return s + kirkGross * (1 - (t.kirkLaoPercent ?? 30) / 100);
-    }, 0);
-    const activeVal = active.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0);
-    return { totalGross, totalNet1, totalNet2, closedCount: closed.length, activeCount: active.length, activeVal };
-  }, [transactions]);
+  // --- Closed Deal Table ---
+  const closedDeals = useMemo(() => {
+    return filteredTransactions
+      .filter(t => t.stage === 'Closed')
+      .sort((a, b) => (b.coeDate || '').localeCompare(a.coeDate || ''));
+  }, [filteredTransactions]);
+  const [closedPage, setClosedPage] = useState(1);
+  const closedPerPage = 10;
+  const closedTotalPages = Math.max(1, Math.ceil(closedDeals.length / closedPerPage));
+  const closedSafePage = Math.min(closedPage, closedTotalPages);
+  const pagedClosedDeals = closedDeals.slice((closedSafePage - 1) * closedPerPage, closedSafePage * closedPerPage);
 
-  // CSV Export helpers
+  // --- CSV Export helpers ---
   const downloadCSV = (filename: string, rows: string[][]) => {
     const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -9111,13 +9139,13 @@ const ReportsView = ({
 
   const exportTransactionsCSV = () => {
     const headers = ['Deal Name', 'Stage', 'Price', 'Gross Commission %', `${agent1} LAO %`, `${agent2} LAO %`, `${agent1} Split %`, `${agent2} Split %`, 'Address', 'Acreage', 'Zoning', 'COE Date', 'PSA Date', 'Feasibility Date', 'County', 'APN'];
-    const rows = [headers, ...transactions.map(t => [t.dealName, t.stage, t.price, t.grossCommissionPercent, t.treyLaoPercent, t.kirkLaoPercent, t.treySplitPercent, t.kirkSplitPercent, t.address, t.acreage, t.zoning, t.coeDate, t.psaDate, t.feasibilityDate, t.county || '', t.apn || ''])];
+    const rows = [headers, ...filteredTransactions.map(t => [t.dealName, t.stage, t.price, t.grossCommissionPercent, t.treyLaoPercent, t.kirkLaoPercent, t.treySplitPercent, t.kirkSplitPercent, t.address, t.acreage, t.zoning, t.coeDate, t.psaDate, t.feasibilityDate, t.county || '', t.apn || ''])];
     downloadCSV('transactions.csv', rows.map(r => r.map(String)));
   };
 
   const exportLeadsCSV = () => {
-    const headers = ['Project Name', 'Type', 'Contact Name', 'Details', 'Summary', 'Last Spoke Date'];
-    const rows = [headers, ...leads.filter(l => !l.isDeleted).map(l => [l.projectName, l.stage, l.contactName, l.details, l.summary, l.lastSpokeDate])];
+    const headers = ['Project Name', 'Stage', 'Contact Name', 'Description', 'Assigned Agent', 'Last Spoke Date'];
+    const rows = [headers, ...leads.filter(l => !l.isDeleted).map(l => [l.projectName, l.stage, l.contactName, l.description || '', l.assignedAgent || '', l.lastSpokeDate || ''])];
     downloadCSV('leads.csv', rows.map(r => r.map(String)));
   };
 
@@ -9127,26 +9155,14 @@ const ReportsView = ({
     downloadCSV('contacts.csv', rows.map(r => r.map(String)));
   };
 
-  const exportAllCSV = () => {
-    const txHeaders = ['Type', 'Deal Name', 'Stage', 'Price', 'Gross Commission %', 'COE Date', 'Address'];
-    const leadHeaders = ['Type', 'Project Name', 'Lead Type', 'Contact Name', 'Last Spoke Date', '', ''];
-    const rows = [
-      txHeaders,
-      ...transactions.map(t => ['Transaction', t.dealName, t.stage, t.price, t.grossCommissionPercent, t.coeDate, t.address]),
-      [''],
-      leadHeaders,
-      ...leads.filter(l => !l.isDeleted).map(l => ['Lead', l.projectName, l.stage, l.contactName, l.lastSpokeDate, '', '']),
-    ];
-    downloadCSV('lao-pipeline-all.csv', rows.map(r => r.map(String)));
-  };
-
   const handlePrint = () => window.print();
 
-  const STAGE_COLORS: Record<string, string> = { LOI: '#94a3b8', Contract: '#6366f1', Escrow: '#f59e0b', Closed: '#10b981', Option: '#f97316' };
+  const cardCn = cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200");
+  const headerCn = cn("px-5 py-3 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-100 bg-slate-50");
+  const titleCn = cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800");
 
   return (
     <div className="space-y-6 max-w-[1400px] mx-auto">
-      {/* Print styles injected inline */}
       <style>{`
         @media print {
           body * { visibility: hidden; }
@@ -9156,88 +9172,101 @@ const ReportsView = ({
         }
       `}</style>
 
-      <div id="reports-print-area">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-          <div>
-            <h1 className={cn("text-2xl font-bold", darkMode ? "text-slate-100" : "text-slate-900")}>Reports</h1>
-            <p className={cn("text-sm mt-0.5", darkMode ? "text-slate-400" : "text-slate-500")}>Pipeline analytics and commission summaries</p>
-          </div>
-          <div className="flex items-center gap-2 no-print">
-            {/* Period filter */}
-            <div className={cn("flex rounded-lg border text-xs font-semibold overflow-hidden", darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white")}>
-              {(['all', 'ytd', '90d', '30d'] as const).map(p => (
-                <button
-                  key={p}
-                  onClick={() => setPeriodFilter(p)}
-                  className={cn(
-                    "px-3 py-2 transition-colors",
-                    periodFilter === p
-                      ? "bg-indigo-600 text-white"
-                      : darkMode ? "text-slate-300 hover:bg-slate-700" : "text-slate-600 hover:bg-slate-50"
-                  )}
-                >
-                  {p === 'all' ? 'All Time' : p === 'ytd' ? 'YTD' : p === '90d' ? '90 Days' : '30 Days'}
-                </button>
-              ))}
+      <div id="reports-print-area" className="space-y-6">
+
+        {/* ── Header + Filter Bar ─────────────────────── */}
+        <div className={cn(cardCn, "no-print")}>
+          <div className="px-5 py-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div>
+                <h1 className={cn("text-2xl font-bold", darkMode ? "text-slate-100" : "text-slate-900")}>Reports</h1>
+                <p className={cn("text-sm mt-0.5", darkMode ? "text-slate-400" : "text-slate-500")}>Pipeline analytics and commission summaries</p>
+              </div>
+              <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors shrink-0">
+                <Printer className="w-4 h-4" /> Print Report
+              </button>
+            </div>
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <span className={cn("text-xs font-semibold uppercase tracking-wider block mb-1.5", darkMode ? "text-slate-400" : "text-slate-500")}>Quick Range</span>
+                <div className={cn("flex rounded-lg border text-xs font-semibold overflow-hidden", darkMode ? "border-slate-700 bg-slate-700" : "border-slate-200 bg-white")}>
+                  {([['all', 'All Time'], ['ytd', 'This Year'], ['lastyear', 'Last Year'], ['90d', 'Last 90 Days']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => setPreset(key)} className={cn("px-3 py-2 transition-colors", activePreset === key ? "bg-indigo-600 text-white" : darkMode ? "text-slate-300 hover:bg-slate-600" : "text-slate-600 hover:bg-slate-50")}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-end gap-2">
+                <div>
+                  <span className={cn("text-xs font-semibold uppercase tracking-wider block mb-1.5", darkMode ? "text-slate-400" : "text-slate-500")}>From</span>
+                  <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={cn("px-3 py-2 rounded-lg border text-sm", darkMode ? "bg-slate-700 border-slate-600 text-slate-200" : "bg-white border-slate-200 text-slate-700")} />
+                </div>
+                <div>
+                  <span className={cn("text-xs font-semibold uppercase tracking-wider block mb-1.5", darkMode ? "text-slate-400" : "text-slate-500")}>To</span>
+                  <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={cn("px-3 py-2 rounded-lg border text-sm", darkMode ? "bg-slate-700 border-slate-600 text-slate-200" : "bg-white border-slate-200 text-slate-700")} />
+                </div>
+              </div>
+              <div>
+                <span className={cn("text-xs font-semibold uppercase tracking-wider block mb-1.5", darkMode ? "text-slate-400" : "text-slate-500")}>Agent</span>
+                <select value={agentFilter} onChange={e => setAgentFilter(e.target.value as any)} className={cn("px-3 py-2 rounded-lg border text-sm", darkMode ? "bg-slate-700 border-slate-600 text-slate-200" : "bg-white border-slate-200 text-slate-700")}>
+                  <option value="all">Both Agents</option>
+                  <option value="agent1">{agent1} Only</option>
+                  <option value="agent2">{agent2} Only</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* KPI Cards */}
+        {/* ── KPI Cards ───────────────────────────────── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Closed Deals', value: kpis.closedCount, format: 'count', color: 'text-slate-900' },
-            { label: 'Total Gross Commission', value: kpis.totalGross, format: 'currency', color: 'text-emerald-600' },
-            { label: `${agent1} Net Commission`, value: kpis.totalNet1, format: 'currency', color: 'text-indigo-600' },
-            { label: `${agent2} Net Commission`, value: kpis.totalNet2, format: 'currency', color: 'text-purple-600' },
+            { label: 'Closed Deals', value: kpis.closedCount, fmt: 'count', color: darkMode ? 'text-slate-100' : 'text-slate-900' },
+            { label: 'Total Gross Commission', value: kpis.totalGross, fmt: 'currency', color: 'text-emerald-600' },
+            { label: `${agent1} Net Commission`, value: kpis.totalNet1, fmt: 'currency', color: 'text-green-600' },
+            { label: `${agent2} Net Commission`, value: kpis.totalNet2, fmt: 'currency', color: 'text-indigo-600' },
           ].map(card => (
             <div key={card.label} className={cn("rounded-2xl p-5 border shadow-sm", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
               <p className={cn("text-xs font-bold uppercase tracking-widest mb-1", darkMode ? "text-slate-400" : "text-slate-500")}>{card.label}</p>
-              <p className={cn("text-2xl font-bold", card.color)}>
-                {card.format === 'currency' ? formatCurrency(card.value as number) : card.value}
+              <p className={cn("text-2xl font-bold tabular-nums", card.color)}>
+                {card.fmt === 'currency' ? formatCurrency(card.value as number) : card.value}
               </p>
             </div>
           ))}
         </div>
 
-        {/* Charts row 1 */}
+        {/* ── Charts Row 1 ────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Commission by agent (bar) */}
-          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
-              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Commission by Agent</h2>
-            </div>
-            <div className="p-4" style={{ height: 240 }}>
+          <div className={cardCn}>
+            <div className={headerCn}><h2 className={titleCn}>Commission by Agent</h2></div>
+            <div className="p-5" style={{ height: 300 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={commissionByAgent} margin={{ left: 10 }}>
+                <BarChart data={commissionByAgent} margin={{ left: 20, right: 10, top: 10, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#f1f5f9'} />
                   <XAxis dataKey="name" tick={{ fontSize: 12, fill: darkMode ? '#94a3b8' : '#64748b' }} />
-                  <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                  <YAxis tickFormatter={fmtAxis} tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} width={70} />
                   <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
                   <Bar dataKey="value" name="Net Commission" radius={[6, 6, 0, 0]}>
-                    {commissionByAgent.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                    {commissionByAgent.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
-
-          {/* Commission by stage (pie) */}
-          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
-              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Gross Commission by Stage</h2>
-            </div>
-            <div className="p-4" style={{ height: 240 }}>
+          <div className={cardCn}>
+            <div className={headerCn}><h2 className={titleCn}>Gross Commission by Stage</h2></div>
+            <div className="p-5" style={{ height: 300 }}>
               {commissionByStage.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">No data for period.</div>
+                <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">No data for selected range.</div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <RechartsPieChart>
-                    <Pie data={commissionByStage} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }: { name: string, percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                    <Pie data={commissionByStage} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} innerRadius={50} paddingAngle={2}>
                       {commissionByStage.map((entry, i) => <Cell key={i} fill={STAGE_COLORS[entry.name] || '#6366f1'} />)}
                     </Pie>
                     <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
+                    <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
                   </RechartsPieChart>
                 </ResponsiveContainer>
               )}
@@ -9245,41 +9274,43 @@ const ReportsView = ({
           </div>
         </div>
 
-        {/* Commission by month chart */}
-        <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-          <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
-            <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Agent Commission by Month (12 Months)</h2>
-          </div>
-          <div className="p-4" style={{ height: 240 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={commissionByMonth} margin={{ left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#f1f5f9'} />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }} />
-                <YAxis tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} />
-                <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
-                <Bar dataKey={agent1} fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar dataKey={agent2} fill="#6366f1" radius={[4, 4, 0, 0]} />
-                <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-              </BarChart>
-            </ResponsiveContainer>
+        {/* ── Monthly Commission Trend ────────────────── */}
+        <div className={cardCn}>
+          <div className={headerCn}><h2 className={titleCn}>Commission by Month</h2></div>
+          <div className="p-5" style={{ height: 320 }}>
+            {commissionByMonth.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">No closed deals with COE dates in selected range.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={commissionByMonth} margin={{ left: 20, right: 10, top: 10, bottom: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#f1f5f9'} />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                  <YAxis tickFormatter={fmtAxis} tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} width={70} />
+                  <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
+                  {agentFilter !== 'agent2' && <Bar dataKey={agent1} fill="#10b981" radius={[4, 4, 0, 0]} />}
+                  {agentFilter !== 'agent1' && <Bar dataKey={agent2} fill="#6366f1" radius={[4, 4, 0, 0]} />}
+                  <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
-        {/* Pipeline value + Lead funnel row */}
+        {/* ── Pipeline + Lead Funnel ──────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Pipeline value by stage */}
-          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
-              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Active Pipeline Value by Stage</h2>
+          <div className={cardCn}>
+            <div className={headerCn}>
+              <h2 className={titleCn}>Active Pipeline by Stage</h2>
+              <p className={cn("text-xs mt-0.5", darkMode ? "text-slate-500" : "text-slate-400")}>Current snapshot (not date-filtered)</p>
             </div>
-            <div className="p-4" style={{ height: 220 }}>
+            <div className="p-5" style={{ height: 280 }}>
               {pipelineByStage.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-slate-400 text-sm italic">No active deals.</div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={pipelineByStage} layout="vertical" margin={{ left: 10 }}>
+                  <BarChart data={pipelineByStage} layout="vertical" margin={{ left: 20, right: 20, top: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#334155' : '#f1f5f9'} />
-                    <XAxis type="number" tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }} />
+                    <XAxis type="number" tickFormatter={fmtAxis} tick={{ fontSize: 10, fill: darkMode ? '#94a3b8' : '#64748b' }} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: darkMode ? '#94a3b8' : '#64748b' }} width={70} />
                     <RechartsTooltip formatter={(v: number) => formatCurrency(v)} />
                     <Bar dataKey="value" name="Gross Commission" radius={[0, 6, 6, 0]}>
@@ -9290,28 +9321,20 @@ const ReportsView = ({
               )}
             </div>
           </div>
-
-          {/* Lead conversion funnel */}
-          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
-              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Lead Conversion Funnel</h2>
+          <div className={cardCn}>
+            <div className={headerCn}>
+              <h2 className={titleCn}>Lead Funnel</h2>
+              <p className={cn("text-xs mt-0.5", darkMode ? "text-slate-500" : "text-slate-400")}>Current snapshot (not date-filtered)</p>
             </div>
-            <div className="p-6 space-y-3">
+            <div className="p-6 space-y-4">
               {leadFunnel.map((stage, i) => (
                 <div key={stage.name}>
-                  <div className="flex justify-between items-center mb-1">
+                  <div className="flex justify-between items-center mb-1.5">
                     <span className={cn("text-xs font-semibold", darkMode ? "text-slate-300" : "text-slate-700")}>{stage.name}</span>
-                    <span className={cn("text-xs font-bold", darkMode ? "text-slate-200" : "text-slate-900")}>{stage.count}</span>
+                    <span className={cn("text-sm font-bold tabular-nums", darkMode ? "text-slate-200" : "text-slate-900")}>{stage.count}</span>
                   </div>
-                  <div className={cn("w-full rounded-full h-3 overflow-hidden", darkMode ? "bg-slate-700" : "bg-slate-100")}>
-                    <div
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: leadFunnel[0].count > 0 ? `${(stage.count / leadFunnel[0].count) * 100}%` : '0%',
-                        background: stage.color,
-                        opacity: 1 - i * 0.1
-                      }}
-                    />
+                  <div className={cn("w-full rounded-full h-4 overflow-hidden", darkMode ? "bg-slate-700" : "bg-slate-100")}>
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: leadFunnel[0].count > 0 ? `${Math.max(2, (stage.count / leadFunnel[0].count) * 100)}%` : '0%', background: stage.color, opacity: 1 - i * 0.08 }} />
                   </div>
                 </div>
               ))}
@@ -9319,60 +9342,64 @@ const ReportsView = ({
           </div>
         </div>
 
-        {/* Deal velocity + closed deal history */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Deal velocity */}
-          <div className={cn("rounded-2xl border shadow-sm p-6", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-            <h2 className={cn("font-bold text-sm uppercase tracking-wider mb-4", darkMode ? "text-slate-200" : "text-slate-800")}>Deal Velocity</h2>
-            {dealVelocity ? (
-              <div className="space-y-3">
-                <div>
-                  <p className={cn("text-4xl font-bold", darkMode ? "text-slate-100" : "text-slate-900")}>{dealVelocity.avgDays}</p>
-                  <p className={cn("text-sm", darkMode ? "text-slate-400" : "text-slate-500")}>Avg. days from PSA to Close</p>
-                </div>
-                <p className={cn("text-xs", darkMode ? "text-slate-500" : "text-slate-400")}>Based on {dealVelocity.count} closed deal{dealVelocity.count !== 1 ? 's' : ''} with both PSA and COE dates.</p>
-              </div>
+        {/* ── Closed Deal Table ───────────────────────── */}
+        <div className={cardCn}>
+          <div className={cn(headerCn, "flex items-center justify-between")}>
+            <h2 className={titleCn}>Closed Deals</h2>
+            <span className={cn("text-xs", darkMode ? "text-slate-500" : "text-slate-400")}>{closedDeals.length} deal{closedDeals.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="overflow-x-auto">
+            {closedDeals.length === 0 ? (
+              <p className={cn("p-6 text-sm italic text-center", darkMode ? "text-slate-500" : "text-slate-400")}>No closed deals in selected range.</p>
             ) : (
-              <p className={cn("text-sm italic", darkMode ? "text-slate-500" : "text-slate-400")}>No closed deals with PSA + COE dates to calculate velocity.</p>
+              <table className="w-full text-sm">
+                <thead className={cn("border-b", darkMode ? "bg-slate-700/50 border-slate-700 text-slate-400" : "bg-slate-50 border-slate-100 text-slate-500")}>
+                  <tr>
+                    <th className="text-left px-5 py-3 font-semibold text-xs uppercase tracking-wider">Deal Name</th>
+                    <th className="text-left px-5 py-3 font-semibold text-xs uppercase tracking-wider">Close Date</th>
+                    <th className="text-right px-5 py-3 font-semibold text-xs uppercase tracking-wider">Price</th>
+                    <th className="text-right px-5 py-3 font-semibold text-xs uppercase tracking-wider">Gross Comm.</th>
+                    <th className="text-right px-5 py-3 font-semibold text-xs uppercase tracking-wider">{agent1} Net</th>
+                    <th className="text-right px-5 py-3 font-semibold text-xs uppercase tracking-wider">{agent2} Net</th>
+                  </tr>
+                </thead>
+                <tbody className={cn("divide-y", darkMode ? "divide-slate-700" : "divide-slate-100")}>
+                  {pagedClosedDeals.map(t => {
+                    const gross = t.price * (t.grossCommissionPercent / 100);
+                    const net1 = gross * (t.treySplitPercent / 100) * (1 - (t.treyLaoPercent ?? 35) / 100);
+                    const net2 = gross * (t.kirkSplitPercent / 100) * (1 - (t.kirkLaoPercent ?? 30) / 100);
+                    return (
+                      <tr key={t.id} className={cn("transition-colors", darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50")}>
+                        <td className={cn("px-5 py-3 font-medium truncate max-w-[200px]", darkMode ? "text-slate-200" : "text-slate-800")}>{t.dealName}</td>
+                        <td className={cn("px-5 py-3", darkMode ? "text-slate-400" : "text-slate-500")}>{t.coeDate ? format(parseISO(t.coeDate), 'MMM d, yyyy') : '—'}</td>
+                        <td className={cn("px-5 py-3 text-right tabular-nums", darkMode ? "text-slate-300" : "text-slate-700")}>{formatCurrency(t.price)}</td>
+                        <td className={cn("px-5 py-3 text-right tabular-nums font-semibold", darkMode ? "text-emerald-400" : "text-emerald-600")}>{formatCurrency(gross)}</td>
+                        <td className={cn("px-5 py-3 text-right tabular-nums", darkMode ? "text-green-400" : "text-green-600")}>{formatCurrency(net1)}</td>
+                        <td className={cn("px-5 py-3 text-right tabular-nums", darkMode ? "text-indigo-400" : "text-indigo-600")}>{formatCurrency(net2)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                {closedDeals.length > 0 && (
+                  <tfoot>
+                    <tr className={cn("border-t-2 font-bold", darkMode ? "border-slate-600 bg-slate-700/30" : "border-slate-200 bg-slate-50")}>
+                      <td className={cn("px-5 py-3", darkMode ? "text-slate-200" : "text-slate-800")} colSpan={2}>Total ({closedDeals.length} deals)</td>
+                      <td className={cn("px-5 py-3 text-right tabular-nums", darkMode ? "text-slate-200" : "text-slate-800")}>{formatCurrency(closedDeals.reduce((s, t) => s + t.price, 0))}</td>
+                      <td className={cn("px-5 py-3 text-right tabular-nums", darkMode ? "text-emerald-400" : "text-emerald-600")}>{formatCurrency(closedDeals.reduce((s, t) => s + t.price * (t.grossCommissionPercent / 100), 0))}</td>
+                      <td className={cn("px-5 py-3 text-right tabular-nums", darkMode ? "text-green-400" : "text-green-600")}>{formatCurrency(closedDeals.reduce((s, t) => { const g = t.price * (t.grossCommissionPercent / 100); return s + g * (t.treySplitPercent / 100) * (1 - (t.treyLaoPercent ?? 35) / 100); }, 0))}</td>
+                      <td className={cn("px-5 py-3 text-right tabular-nums", darkMode ? "text-indigo-400" : "text-indigo-600")}>{formatCurrency(closedDeals.reduce((s, t) => { const g = t.price * (t.grossCommissionPercent / 100); return s + g * (t.kirkSplitPercent / 100) * (1 - (t.kirkLaoPercent ?? 30) / 100); }, 0))}</td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             )}
           </div>
-
-          {/* Closed deal history */}
-          <div className={cn("rounded-2xl border shadow-sm overflow-hidden", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
-            <div className={cn("p-4 border-b", darkMode ? "border-slate-700 bg-slate-700/40" : "border-slate-200 bg-slate-50")}>
-              <h2 className={cn("font-bold text-sm uppercase tracking-wider", darkMode ? "text-slate-200" : "text-slate-800")}>Closed Deal History (Recent 10)</h2>
-            </div>
-            <div className="overflow-x-auto">
-              {closedDeals.length === 0 ? (
-                <p className={cn("p-4 text-sm italic", darkMode ? "text-slate-500" : "text-slate-400")}>No closed deals yet.</p>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead className={cn("border-b", darkMode ? "bg-slate-700/50 border-slate-700 text-slate-400" : "bg-slate-50 border-slate-200 text-slate-500")}>
-                    <tr>
-                      <th className="text-left px-4 py-2 font-semibold uppercase tracking-wider">Deal</th>
-                      <th className="text-left px-4 py-2 font-semibold uppercase tracking-wider">COE</th>
-                      <th className="text-right px-4 py-2 font-semibold uppercase tracking-wider">Price</th>
-                      <th className="text-right px-4 py-2 font-semibold uppercase tracking-wider">Gross Comm.</th>
-                    </tr>
-                  </thead>
-                  <tbody className={cn("divide-y", darkMode ? "divide-slate-700" : "divide-slate-100")}>
-                    {closedDeals.map(t => (
-                      <tr key={t.id} className={cn("transition-colors", darkMode ? "hover:bg-slate-700/50" : "hover:bg-slate-50")}>
-                        <td className={cn("px-4 py-2.5 font-medium truncate max-w-[160px]", darkMode ? "text-slate-200" : "text-slate-800")}>{t.dealName}</td>
-                        <td className={cn("px-4 py-2.5", darkMode ? "text-slate-400" : "text-slate-500")}>{t.coeDate ? format(parseISO(t.coeDate), 'MMM d, yyyy') : '—'}</td>
-                        <td className={cn("px-4 py-2.5 text-right", darkMode ? "text-slate-300" : "text-slate-700")}>{formatCurrency(t.price)}</td>
-                        <td className={cn("px-4 py-2.5 text-right font-semibold", darkMode ? "text-emerald-400" : "text-emerald-600")}>{formatCurrency(t.price * (t.grossCommissionPercent / 100))}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
+          <Pagination page={closedSafePage} totalPages={closedTotalPages} onPage={setClosedPage} />
         </div>
+
       </div>
 
-      {/* Export buttons */}
+      {/* ── Export Section ─────────────────────────────── */}
       <div className={cn("rounded-2xl border shadow-sm p-5 no-print", darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200")}>
         <h2 className={cn("font-bold text-sm uppercase tracking-wider mb-4", darkMode ? "text-slate-200" : "text-slate-800")}>Export Data</h2>
         <div className="flex flex-wrap gap-3">
@@ -9385,14 +9412,10 @@ const ReportsView = ({
           <button onClick={exportContactsCSV} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors">
             <FileDown className="w-4 h-4" /> Contacts CSV
           </button>
-          <button onClick={exportAllCSV} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg border border-slate-200 transition-colors">
-            <FileDown className="w-4 h-4" /> All Data CSV
-          </button>
           <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition-colors">
-            <Printer className="w-4 h-4" /> PDF Report (Print)
+            <Printer className="w-4 h-4" /> Print / Save PDF
           </button>
         </div>
-        <p className={cn("text-xs mt-2", darkMode ? "text-slate-500" : "text-slate-400")}>PDF Report: use your browser's "Save as PDF" option in the print dialog for a formatted report.</p>
       </div>
     </div>
   );
