@@ -1137,7 +1137,9 @@ const DataManagementView = ({
                   <h4 className="font-semibold text-slate-800 text-sm">CSV Format Guide</h4>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Your spreadsheet must match the column layout below exactly. Row 1 is the header row — copy these column names as-is. Each row after is one {dataType === 'transactions' ? 'transaction' : 'lead'}.
+                  {dataType === 'transactions'
+                    ? 'Your spreadsheet must match the column layout below exactly. Row 1 is the header row — copy these column names as-is. Each row after is one transaction.'
+                    : 'Row 1 is the header row. Only the Lead Type column is required — all other columns are optional. Include whichever columns you have data for. Empty cells are fine.'}
                 </p>
 
                 {dataType === 'transactions' ? (() => {
@@ -1189,12 +1191,13 @@ const DataManagementView = ({
                     </div>
                   );
                 })() : (() => {
-                  const cols = ['Lead Type','Project Name','Contact','Details','Last Spoke','Summary of Discussion'];
-                  const letters = ['A','B','C','D','E','F'];
+                  const cols = ['Lead Type','Project Name','Contact','Contact Role','Contact Phone','Contact Email','Description','Notes','Last Spoke','Assigned Agent','Est Value','PID','Acreage','List Price','List Date','Listing Expiration','Listing Stage'];
+                  const letters = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q'];
                   const rows = [
-                    ['Buyer Lead','Greenfield Acres','Tom Wilson','40 acres irrigated farmland','3/1/2026','Referred by Kirk — motivated buyer, wants to close by Q3'],
-                    ['Listing Lead','Sunny Valley Farms','Sarah Chen','120 acres raw land','2/15/2026','Owner interested in listing — waiting on survey results'],
-                    ['Active Listing','Riverside Parcel','Mike Torres','65 acres, mixed zoning','1/20/2026','Active listing — follow up on marketing plan next week'],
+                    ['Buyer Lead','Ryan Companies','John Paul Mulhern','VP Development','555-1234','jp@ryan.com','Auza 650','Kirk spoke with John Paul, will reengage later','4/6/2025','Kirk','','','','','','',''],
+                    ['Listing Lead','Sunny Valley Farms','Sarah Chen','Owner','','sarah@svf.com','120 acres raw land','Interested in listing — waiting on survey','2/15/2026','','','','120','','','',''],
+                    ['Active Listing','Brady Land - Burris & Clayton Rds','','','','','','','','','9516989','AZPinal186844','27.31','9516989','6/5/2024','6/5/2026','Signed'],
+                    ['Dead Lead','Hardy World','Cheri Bomar','','','','San Carlos 198','Set follow up for mid July','5/1/2025','','','','','','','',''],
                   ];
                   return (
                     <div className="space-y-2">
@@ -1205,7 +1208,7 @@ const DataManagementView = ({
                             <tr>
                               <td className="w-7 bg-emerald-100 border border-slate-300 px-1.5 py-1 text-center text-emerald-700 font-bold sticky left-0 z-10" />
                               {letters.map(l => (
-                                <td key={l} className="bg-emerald-100 border border-slate-300 px-2 py-1 text-center text-emerald-700 font-bold whitespace-nowrap min-w-[110px]">{l}</td>
+                                <td key={l} className="bg-emerald-100 border border-slate-300 px-2 py-1 text-center text-emerald-700 font-bold whitespace-nowrap min-w-[80px]">{l}</td>
                               ))}
                             </tr>
                             {/* Header row */}
@@ -1229,7 +1232,7 @@ const DataManagementView = ({
                         </table>
                       </div>
                       <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Lead Type must be one of: <span className="font-semibold">Buyer Lead, Listing Lead, Active Listing, Dead Lead, Dead Listing</span>. Legacy values (True Lead, Live Contract, Dead Deal, Signed Listing, Trusted Listing) are auto-mapped. Dates can be in any standard format (e.g. 3/1/2026).</p>
+                        <p className="text-xs text-amber-800"><span className="font-semibold">Note:</span> Only <span className="font-semibold">Lead Type</span> is required. All other columns are optional — include whichever you have. Lead Type must be one of: <span className="font-semibold">Buyer Lead, Listing Lead, Active Listing, Dead Lead, Dead Listing</span>. Legacy values (True Lead, Live Contract, Dead Deal, Signed Listing, Trusted Listing) are auto-mapped. Alternate column names are also accepted (e.g. <span className="font-mono text-[10px]">Deal Name</span> for Project Name, <span className="font-mono text-[10px]">Name</span> for Contact, <span className="font-mono text-[10px]">Acres</span> for Acreage, <span className="font-mono text-[10px]">Inquiry</span> for Description).</p>
                       </div>
                     </div>
                   );
