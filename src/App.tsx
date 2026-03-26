@@ -11022,10 +11022,10 @@ function AppInner() {
           <div className="space-y-2">
             <NavItem view="dashboard" icon={LayoutDashboard} label="Executive Dashboard" />
             <NavItem view="pipeline" icon={List} label="Pipeline Manager" />
-            <NavItem view="reports" icon={BarChart2} label="Reports" />
             <NavItem view="leads" icon={Users} label="Leads Tracker" />
             <NavItem view="inbox" icon={Inbox} label="Email Inbox" badge={inboxUnreadCount || undefined} />
             <NavItem view="contacts" icon={BookUser} label="Contacts" />
+            <NavItem view="reports" icon={BarChart2} label="Reports" />
             <NavItem view="import" icon={Upload} label="Data Import" />
           </div>
           
@@ -11048,7 +11048,6 @@ function AppInner() {
 
           <div className="mt-auto pt-4 border-t border-slate-100 space-y-1">
              <NavItem view="recent-actions" icon={History} label="Recent Actions" />
-             <NavItem view="deleted" icon={Trash2} label="Recently Deleted" />
              <NavItem view="settings" icon={Settings} label="Settings" />
           </div>
         </div>
