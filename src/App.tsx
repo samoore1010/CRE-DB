@@ -2924,6 +2924,7 @@ const LeadDetailView = ({
   const [newContact, setNewContact] = useState<LeadContact>({ id: '', name: '', role: '', phone: '', email: '' });
   const [isAddingReminder, setIsAddingReminder] = useState(false);
   const [newReminder, setNewReminder] = useState<LeadReminder>({ id: '', date: '', description: '', completed: false });
+  const [isEditing, setIsEditing] = useState(false);
 
   // On load: migrate legacy fields
   // - details → description (not an activity log entry)
@@ -3105,9 +3106,18 @@ const LeadDetailView = ({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {showSaveSuccess && <span className="text-sm text-emerald-600 font-medium animate-in fade-in">Saved!</span>}
-            <button onClick={handleSave} className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm">
-              <Save className="w-4 h-4" /> Save Changes
-            </button>
+            {isEditing ? (
+              <>
+                <button onClick={() => setIsEditing(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">Cancel</button>
+                <button onClick={() => { handleSave(); setIsEditing(false); }} className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm">
+                  <Save className="w-4 h-4" /> Save Changes
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setIsEditing(true)} className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm">
+                <Edit3 className="w-4 h-4" /> Edit Lead
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -3123,78 +3133,119 @@ const LeadDetailView = ({
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
               <FileText className="w-4 h-4" /> Lead Details
             </h3>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Lead Stage</label>
-              <select value={formData.stage} onChange={e => handleInputChange('stage', e.target.value as LeadStage)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                {(['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing'] as LeadStage[]).map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Assigned Agent</label>
-              <select value={formData.assignedAgent || ''} onChange={e => handleInputChange('assignedAgent', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                <option value="">Unassigned</option>
-                <option value="Trey">Trey</option>
-                <option value="Kirk">Kirk</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Project Name</label>
-              <input type="text" value={formData.projectName} onChange={e => handleInputChange('projectName', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Description</label>
-              <textarea value={formData.description || ''} onChange={e => handleInputChange('description', e.target.value)} rows={3} placeholder="Brief description of the opportunity..." className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Est. Deal Value</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                <input type="number" value={formData.estValue || ''} onChange={e => handleInputChange('estValue', e.target.value ? Number(e.target.value) : undefined)} min={0} placeholder="0" className="w-full pl-6 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
-              </div>
-            </div>
+            {isEditing ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Lead Stage</label>
+                    <select value={formData.stage} onChange={e => handleInputChange('stage', e.target.value as LeadStage)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
+                      {(['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing'] as LeadStage[]).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Assigned Agent</label>
+                    <select value={formData.assignedAgent || ''} onChange={e => handleInputChange('assignedAgent', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
+                      <option value="">Unassigned</option>
+                      <option value="Trey">Trey</option>
+                      <option value="Kirk">Kirk</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Project Name</label>
+                  <input type="text" value={formData.projectName} onChange={e => handleInputChange('projectName', e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Description</label>
+                  <textarea value={formData.description || ''} onChange={e => handleInputChange('description', e.target.value)} rows={3} placeholder="Brief description..." className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 resize-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Est. Deal Value</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                    <input type="number" value={formData.estValue || ''} onChange={e => handleInputChange('estValue', e.target.value ? Number(e.target.value) : undefined)} min={0} placeholder="0" className="w-full pl-6 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-4">
+                  <div>
+                    <span className="text-xs font-medium text-slate-400 block mb-1">Stage</span>
+                    <span className={cn("inline-block px-2.5 py-1 text-xs font-bold rounded-full border", typeColor)}>{formData.stage}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs font-medium text-slate-400 block mb-1">Assigned Agent</span>
+                    <span className="text-sm font-medium text-slate-800">{formData.assignedAgent || '—'}</span>
+                  </div>
+                  {formData.estValue ? (
+                    <div>
+                      <span className="text-xs font-medium text-slate-400 block mb-1">Est. Value</span>
+                      <span className="text-sm font-semibold text-emerald-700">{formatCurrency(formData.estValue)}</span>
+                    </div>
+                  ) : null}
+                  {lastContactedDate && (
+                    <div>
+                      <span className="text-xs font-medium text-slate-400 block mb-1">Last Contacted</span>
+                      <span className="text-sm text-slate-700">{format(lastContactedDate, 'MMM d, yyyy')}</span>
+                    </div>
+                  )}
+                </div>
+                {formData.description && (
+                  <div className="pt-2">
+                    <span className="text-xs font-medium text-slate-400 block mb-1">Description</span>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{formData.description}</p>
+                  </div>
+                )}
+              </>
+            )}
             {formData.stage === 'Active Listing' && (
               <div className="space-y-3 pt-3 border-t border-slate-200">
                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Listing Details</h4>
-                {/* PID */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Parcel ID (PID)</label>
-                  <input type="text" value={formData.pid || ''} onChange={e => setFormData(prev => ({...prev, pid: e.target.value}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g. AZPinal123456" />
-                </div>
-                {/* Acreage */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Acreage</label>
-                  <input type="number" step="0.01" value={formData.acreage || ''} onChange={e => setFormData(prev => ({...prev, acreage: e.target.value ? Number(e.target.value) : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                </div>
-                {/* List Price */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">List Price</label>
-                  <input type="number" step="0.01" value={formData.listPrice || ''} onChange={e => setFormData(prev => ({...prev, listPrice: e.target.value ? Number(e.target.value) : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                </div>
-                {/* Listing Stage */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Listing Stage</label>
-                  <select value={formData.listingStage || ''} onChange={e => setFormData(prev => ({...prev, listingStage: (e.target.value || undefined) as any}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-                    <option value="">—</option>
-                    <option value="Trusted">Trusted</option>
-                    <option value="Signed">Signed</option>
-                  </select>
-                </div>
-                {/* List Date */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">List Date</label>
-                  <input type="date" value={formData.listDate ? formData.listDate.slice(0, 10) : ''} onChange={e => setFormData(prev => ({...prev, listDate: e.target.value ? new Date(e.target.value).toISOString() : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                </div>
-                {/* Listing Expiration */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Listing Expiration</label>
-                  <input type="date" value={formData.listingExpirationDate ? formData.listingExpirationDate.slice(0, 10) : ''} onChange={e => setFormData(prev => ({...prev, listingExpirationDate: e.target.value ? new Date(e.target.value).toISOString() : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                </div>
-              </div>
-            )}
-            {lastContactedDate && (
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Last Contacted</label>
-                <p className="text-sm text-slate-700">{format(lastContactedDate, 'MMM d, yyyy')}</p>
+                {isEditing ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Parcel ID (PID)</label>
+                      <input type="text" value={formData.pid || ''} onChange={e => setFormData(prev => ({...prev, pid: e.target.value}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g. AZPinal123456" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Acreage</label>
+                      <input type="number" step="0.01" value={formData.acreage || ''} onChange={e => setFormData(prev => ({...prev, acreage: e.target.value ? Number(e.target.value) : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">List Price</label>
+                      <input type="number" step="0.01" value={formData.listPrice || ''} onChange={e => setFormData(prev => ({...prev, listPrice: e.target.value ? Number(e.target.value) : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Listing Stage</label>
+                      <select value={formData.listingStage || ''} onChange={e => setFormData(prev => ({...prev, listingStage: (e.target.value || undefined) as any}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                        <option value="">—</option>
+                        <option value="Trusted">Trusted</option>
+                        <option value="Signed">Signed</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">List Date</label>
+                      <input type="date" value={formData.listDate ? formData.listDate.slice(0, 10) : ''} onChange={e => setFormData(prev => ({...prev, listDate: e.target.value ? new Date(e.target.value).toISOString() : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Listing Expiration</label>
+                      <input type="date" value={formData.listingExpirationDate ? formData.listingExpirationDate.slice(0, 10) : ''} onChange={e => setFormData(prev => ({...prev, listingExpirationDate: e.target.value ? new Date(e.target.value).toISOString() : undefined}))} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3">
+                    {formData.pid && <div><span className="text-xs font-medium text-slate-400 block mb-0.5">PID</span><span className="text-sm text-slate-800 font-mono">{formData.pid}</span></div>}
+                    {formData.acreage && <div><span className="text-xs font-medium text-slate-400 block mb-0.5">Acreage</span><span className="text-sm text-slate-800">{formData.acreage} ac</span></div>}
+                    {formData.listPrice && <div><span className="text-xs font-medium text-slate-400 block mb-0.5">List Price</span><span className="text-sm font-semibold text-emerald-700">{formatCurrency(formData.listPrice)}</span></div>}
+                    {formData.listingStage && <div><span className="text-xs font-medium text-slate-400 block mb-0.5">Listing Stage</span><span className={cn("inline-block px-2 py-0.5 text-xs font-bold rounded-full", formData.listingStage === 'Signed' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{formData.listingStage}</span></div>}
+                    {formData.listDate && <div><span className="text-xs font-medium text-slate-400 block mb-0.5">List Date</span><span className="text-sm text-slate-700">{format(parseISO(formData.listDate), 'MMM d, yyyy')}</span></div>}
+                    {formData.listingExpirationDate && <div><span className="text-xs font-medium text-slate-400 block mb-0.5">Expiration</span><span className="text-sm text-slate-700">{format(parseISO(formData.listingExpirationDate), 'MMM d, yyyy')}</span></div>}
+                    {!formData.pid && !formData.acreage && !formData.listPrice && !formData.listDate && (
+                      <p className="text-xs text-slate-400 italic col-span-full">No listing details yet — click Edit Lead to add.</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
