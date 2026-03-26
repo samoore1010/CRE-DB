@@ -2539,6 +2539,11 @@ const LeadsView = ({
   const [dragLeadId, setDragLeadId] = useState<string | null>(null);
   const [isDragOverLOI, setIsDragOverLOI] = useState(false);
   const [drawerLeads, setDrawerLeads] = useState<Lead[] | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [filterStage, setFilterStage] = useState<string>('all');
+  const [filterAgent, setFilterAgent] = useState<string>('all');
+  const [leadsPage, setLeadsPage] = useState(1);
+  const leadsRowsPerPage = useRowsPerPage(82, 48, 440, 480);
 
   const kanbanStages: LeadStage[] = ['Buyer Lead', 'Listing Lead', 'Active Listing', 'Dead Lead', 'Dead Listing'];
 
@@ -2570,16 +2575,60 @@ const LeadsView = ({
   const convertedLeads = useMemo(() => leads.filter(l => !!l.convertedToTransactionId), [leads]);
   const draggedLead = dragLeadId ? leads.find(l => l.id === dragLeadId) : null;
 
+  useEffect(() => { setLeadsPage(1); }, [search, filterStage, filterAgent]);
+
   const filteredActiveLeads = useMemo(() => {
-    if (!search) return activeLeads;
-    const lower = search.toLowerCase();
-    return activeLeads.filter(l =>
-      l.projectName.toLowerCase().includes(lower) ||
-      l.contactName.toLowerCase().includes(lower) ||
-      (l.description || '').toLowerCase().includes(lower) ||
-      getLeadSummary(l).toLowerCase().includes(lower)
-    );
-  }, [activeLeads, search]);
+    let result = activeLeads;
+    // Stage filter
+    if (filterStage !== 'all') result = result.filter(l => l.stage === filterStage);
+    // Agent filter
+    if (filterAgent !== 'all') result = result.filter(l => (l.assignedAgent || '') === filterAgent);
+    // Search
+    if (search) {
+      const lower = search.toLowerCase();
+      result = result.filter(l =>
+        l.projectName.toLowerCase().includes(lower) ||
+        l.contactName.toLowerCase().includes(lower) ||
+        (l.description || '').toLowerCase().includes(lower) ||
+        getLeadSummary(l).toLowerCase().includes(lower)
+      );
+    }
+    // Sort
+    if (sortConfig) {
+      result = [...result].sort((a, b) => {
+        let aVal: any, bVal: any;
+        switch (sortConfig.key) {
+          case 'stage': aVal = a.stage; bVal = b.stage; break;
+          case 'projectName': aVal = a.projectName; bVal = b.projectName; break;
+          case 'contactName': aVal = a.contactName; bVal = b.contactName; break;
+          case 'lastSpokeDate': aVal = a.lastSpokeDate || ''; bVal = b.lastSpokeDate || ''; break;
+          case 'assignedAgent': aVal = a.assignedAgent || ''; bVal = b.assignedAgent || ''; break;
+          case 'estValue': aVal = a.estValue || 0; bVal = b.estValue || 0; break;
+          default: return 0;
+        }
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+    return result;
+  }, [activeLeads, search, filterStage, filterAgent, sortConfig]);
+
+  const leadsTotalPages = Math.max(1, Math.ceil(filteredActiveLeads.length / leadsRowsPerPage));
+  const leadsSafePage = Math.min(leadsPage, leadsTotalPages);
+  const pagedLeads = filteredActiveLeads.slice((leadsSafePage - 1) * leadsRowsPerPage, leadsSafePage * leadsRowsPerPage);
+
+  const handleLeadSort = (key: string) => {
+    setSortConfig(prev => {
+      if (prev?.key === key) return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      return { key, direction: 'asc' };
+    });
+  };
+
+  const LeadSortIcon = ({ col }: { col: string }) => {
+    if (sortConfig?.key !== col) return <ArrowUpDown className="w-3 h-3 text-slate-300" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-600" /> : <ArrowDown className="w-3 h-3 text-indigo-600" />;
+  };
 
   const exportCSV = () => {
     const headers = ['Lead Type', 'Project Name', 'Contact', 'Contact Role', 'Contact Phone', 'Contact Email', 'Description', 'Est Value', 'Assigned Agent', 'Last Spoke', 'Notes', 'PID', 'Acreage', 'List Price', 'List Date', 'Listing Expiration', 'Listing Stage'];
@@ -2673,6 +2722,26 @@ const LeadsView = ({
       {/* Table View */}
       {viewMode === 'table' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-slate-400" />
+              <select value={filterStage} onChange={e => setFilterStage(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500">
+                <option value="all">All Stages</option>
+                <option value="Buyer Lead">Buyer Lead</option>
+                <option value="Listing Lead">Listing Lead</option>
+                <option value="Active Listing">Active Listing</option>
+                <option value="Dead Lead">Dead Lead</option>
+                <option value="Dead Listing">Dead Listing</option>
+              </select>
+              <select value={filterAgent} onChange={e => setFilterAgent(e.target.value)} className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500">
+                <option value="all">All Agents</option>
+                <option value="Trey">Trey</option>
+                <option value="Kirk">Kirk</option>
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+            <span className="text-xs text-slate-400 ml-auto">{filteredActiveLeads.length} lead{filteredActiveLeads.length !== 1 ? 's' : ''}</span>
+          </div>
           {selectedIds.size > 0 && (
             <div className="px-4 py-2 bg-red-50 border-b border-red-200 flex items-center gap-3">
               <span className="text-sm text-red-700 font-medium">{selectedIds.size} selected</span>
@@ -2691,10 +2760,10 @@ const LeadsView = ({
                   <th className="px-4 py-3 text-left w-10">
                     <input
                       type="checkbox"
-                      checked={filteredActiveLeads.length > 0 && selectedIds.size === filteredActiveLeads.length}
+                      checked={pagedLeads.length > 0 && selectedIds.size === pagedLeads.length}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedIds(new Set(filteredActiveLeads.map(l => l.id)));
+                          setSelectedIds(new Set(pagedLeads.map(l => l.id)));
                         } else {
                           setSelectedIds(new Set());
                         }
@@ -2702,17 +2771,29 @@ const LeadsView = ({
                       className="rounded border-slate-300"
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Stage</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Project Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Contact</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none" onClick={() => handleLeadSort('stage')}>
+                    <span className="flex items-center gap-1">Stage <LeadSortIcon col="stage" /></span>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none" onClick={() => handleLeadSort('projectName')}>
+                    <span className="flex items-center gap-1">Project Name <LeadSortIcon col="projectName" /></span>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none" onClick={() => handleLeadSort('contactName')}>
+                    <span className="flex items-center gap-1">Contact <LeadSortIcon col="contactName" /></span>
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Last Spoke</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Agent</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Est Value</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none" onClick={() => handleLeadSort('lastSpokeDate')}>
+                    <span className="flex items-center gap-1">Last Spoke <LeadSortIcon col="lastSpokeDate" /></span>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none" onClick={() => handleLeadSort('assignedAgent')}>
+                    <span className="flex items-center gap-1">Agent <LeadSortIcon col="assignedAgent" /></span>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer hover:text-slate-700 select-none" onClick={() => handleLeadSort('estValue')}>
+                    <span className="flex items-center gap-1 justify-end">Est Value <LeadSortIcon col="estValue" /></span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {filteredActiveLeads.map(lead => (
+                {pagedLeads.map(lead => (
                   <tr
                     key={lead.id}
                     className="border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer"
@@ -2741,12 +2822,13 @@ const LeadsView = ({
                     <td className="px-4 py-3 text-right text-slate-700 font-medium">{lead.estValue ? formatCurrency(lead.estValue) : '--'}</td>
                   </tr>
                 ))}
-                {filteredActiveLeads.length === 0 && (
+                {pagedLeads.length === 0 && (
                   <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400 text-sm">No leads found.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+          <Pagination page={leadsSafePage} totalPages={leadsTotalPages} onPage={setLeadsPage} />
         </div>
       )}
 
@@ -3255,32 +3337,58 @@ const LeadDetailView = ({
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
               <Users className="w-4 h-4" /> Primary Contact
             </h3>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
-              <input type="text" value={formData.contactName} onChange={e => handleInputChange('contactName', e.target.value)} placeholder="Full name" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Role / Title</label>
-              <input type="text" value={formData.contactRole || ''} onChange={e => handleInputChange('contactRole', e.target.value)} placeholder="e.g. Owner, Broker, CEO" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-              <div className="flex items-center gap-1">
-                <input type="tel" value={formData.contactPhone || ''} onChange={e => handleInputChange('contactPhone', e.target.value)} placeholder="(555) 000-0000" className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
-                {formData.contactPhone && (
-                  <a href={`tel:${formData.contactPhone}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Call"><Phone className="w-4 h-4" /></a>
+            {isEditing ? (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Name</label>
+                  <input type="text" value={formData.contactName} onChange={e => handleInputChange('contactName', e.target.value)} placeholder="Full name" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Role / Title</label>
+                  <input type="text" value={formData.contactRole || ''} onChange={e => handleInputChange('contactRole', e.target.value)} placeholder="e.g. Owner, Broker, CEO" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                  <input type="tel" value={formData.contactPhone || ''} onChange={e => handleInputChange('contactPhone', e.target.value)} placeholder="(555) 000-0000" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                  <input type="email" value={formData.contactEmail || ''} onChange={e => handleInputChange('contactEmail', e.target.value)} placeholder="email@example.com" className="w-full p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2">
+                {formData.contactName ? (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
+                      {formData.contactName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      {onSelectContact
+                        ? <button onClick={() => goToContact(formData.contactName, formData.contactEmail)} className="text-sm font-semibold text-slate-900 hover:text-indigo-600 transition-colors">{formData.contactName}</button>
+                        : <span className="text-sm font-semibold text-slate-900">{formData.contactName}</span>}
+                      {formData.contactRole && <p className="text-xs text-slate-500">{formData.contactRole}</p>}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400 italic">No primary contact — click Edit Lead to add.</p>
+                )}
+                {(formData.contactPhone || formData.contactEmail) && (
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    {formData.contactPhone && (
+                      <a href={`tel:${formData.contactPhone}`} className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-medium bg-indigo-50 px-2.5 py-1.5 rounded-lg">
+                        <Phone className="w-3.5 h-3.5" /> {formData.contactPhone}
+                      </a>
+                    )}
+                    {formData.contactEmail && (
+                      <a href={`mailto:${formData.contactEmail}`} className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-700 font-medium bg-indigo-50 px-2.5 py-1.5 rounded-lg">
+                        <Mail className="w-3.5 h-3.5" /> {formData.contactEmail}
+                      </a>
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
-              <div className="flex items-center gap-1">
-                <input type="email" value={formData.contactEmail || ''} onChange={e => handleInputChange('contactEmail', e.target.value)} placeholder="email@example.com" className="flex-1 p-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
-                {formData.contactEmail && (
-                  <a href={`mailto:${formData.contactEmail}`} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Email"><Mail className="w-4 h-4" /></a>
-                )}
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Additional Contacts */}
